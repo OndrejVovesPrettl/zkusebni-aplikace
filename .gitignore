@@ -1,0 +1,16 @@
+.venv/
+.env
+uploads/tmp/*
+!uploads/tmp/.gitkeep
+backupSQL/*.sql
+backupSQL/*.zip
+!backupSQL/.gitkeep
+output.txt
+temp_log_tail.txt
+includes/config.local.php
+schema_current.sql
+create_zapis_table.sql
+deploy_v5.1.5.ps1
+deploy_v515.ps1
+
+strukturamenu.txt

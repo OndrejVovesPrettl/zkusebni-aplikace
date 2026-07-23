@@ -1,0 +1,21 @@
+<?php
+// Local-only secrets. Copy to includes/config.local.php and fill values.
+// This file is intentionally tracked as an example.
+
+return [
+    'DVD_DB_HOST' => 'localhost',
+    'DVD_DB_NAME' => 'dvd_vyroba',
+    'DVD_DB_USER' => 'root',
+    'DVD_DB_PASS' => 'CHANGE_ME',
+
+    // SMTP mail settings (PHPMailer)
+    'DVD_MAIL_SMTP_HOST'       => 'smtp.example.com',
+    'DVD_MAIL_SMTP_PORT'       => 587,
+    'DVD_MAIL_SMTP_USER'       => 'user@example.com',
+    'DVD_MAIL_SMTP_PASS'       => 'CHANGE_ME',
+    'DVD_MAIL_SMTP_ENCRYPTION' => 'tls', // tls | ssl | none
+    'DVD_MAIL_FROM_ADDRESS'    => 'dvd-app@example.com',
+    'DVD_MAIL_FROM_NAME'       => 'DVD Production Tracking',
+    'DVD_MAIL_TEST_TO'         => 'filip.rimek@prettl.com',
+    'DVD_MAIL_SMTP_DEBUG'      => 0,
+];

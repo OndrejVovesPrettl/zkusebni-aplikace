@@ -1,0 +1,26 @@
+Options -Indexes
+DirectoryIndex index.php
+
+# Blokuj přístup k Python skriptům
+<FilesMatch "\.py$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Blokuj přístup k SQL souborům
+<FilesMatch "\.sql$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# Blokuj přístup k lang/ a uploads/ adresářům přímo
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^lang/ - [F,L]
+    RewriteRule ^uploads/ - [F,L]
+</IfModule>
+
+# PHP nastavení
+php_flag display_errors Off
+php_value upload_max_filesize 50M
+php_value post_max_size 50M

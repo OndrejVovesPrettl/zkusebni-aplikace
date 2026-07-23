@@ -1,0 +1,17 @@
+Test users registry (do not delete accidentally)
+Created: 2026-04-22
+
+Shared password for all accounts:
+InitAdmin123+
+
+Accounts:
+- superadmin_test (role: superadmin)
+- admin_test (role: admin)
+- write_test (role: write)
+- read_test (role: read)
+- traceability_test (role: traceability)
+- writer_test (role: writer)
+
+Notes:
+- Accounts are intended for role-permission QA.
+- password_changed_at is set so first-login password change is not required.

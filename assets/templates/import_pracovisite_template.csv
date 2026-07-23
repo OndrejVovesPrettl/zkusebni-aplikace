@@ -1,0 +1,3 @@
+cislo_id;zakaznik;projekt;verze;kod_pracovisite;nazev_pracovisite;nazev_dilu;sap_cislo;nakladove_stredisko;oznaceni;norma_ks_min;cyklus_min;typ
+1001;PRETTL;EMV Filter;V1;AFO-001;Linka 1;Drzak filtru;SAP001;1200;A1;1.25;0.80;filtry
+1002;PRETTL;Serie EMV;V2;AFO-002;Linka 2;Telo konektoru;SAP002;1300;B2;0.95;1.05;serie

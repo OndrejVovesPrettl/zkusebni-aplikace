@@ -1,0 +1,2 @@
+Prostoje vydělit od samostatné tabulky porovnavat s id ze zaznamy, v zaznamy vyčistit vše ohledně prostojů > new tabulka
+
