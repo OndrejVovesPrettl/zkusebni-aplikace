@@ -1,4 +1,4 @@
-# Dependency Graph (v5.3)
+# Dependency Graph (v5.3.3)
 
 Tento soubor popisuje zavislosti mezi hlavni casti aplikace DVD Sledovani vyroby.
 
@@ -104,7 +104,11 @@ graph TD
 
 ## Poznamky
 - Primarni aplikacni databaze je `dvd_vyroba`, traceability data pouzivaji i `traceability2`.
-- Synchronizace IKOS pracovniku je sjednocena na rezim `refresh_by_interni_id` (rucni i automaticka cesta).
+- **v5.3.3**: `index.php` sekce 02 pocita `Pauza` dynamicky podle casoveho prekryvu zaznamu s tabulkou `prestavky` (typ, rezim, smena).
+- **v5.3.2**: NOK editor (`admin/nok_kody.php`) podporuje filtraci, pridani/odebrani kodu a role-based viditelnost rebuildu z Excelu pouze pro `superadmin`.
+- **v5.3.2**: Import pracovniku (`admin/pracovnici.php`) je sjednocen na full replace + deduplikaci podle `interni_id`.
+- **v5.3.1**: Směny byly přesunuty do databázového číselníku `smeny`; administrace probíhá přes `admin/smeny.php`, formulář v `index.php` čte hodnoty dynamicky.
+- Synchronizace IKOS pracovniku je v aktualnim flow vedena jako full replace import s deduplikaci vstupu podle `interni_id`.
 - `admin/pracovnici.php` i `scripts/sync_ikos_workers.php` zapisuji stav do `uploads/tmp/sync_ikos_workers_state.json`.
 - Importni tok pro DVD (`admin/import.php`, `scripts/auto_import_dvd.php`, `scripts/sync_dvd_import.php`) sdili `includes/import_runtime.php`.
 - Scheduler skripty (`*.ps1`) jsou urcene pro Windows/Laragon provoz.

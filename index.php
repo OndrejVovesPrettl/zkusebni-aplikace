@@ -10,6 +10,7 @@ $nokKodyFlat     = getNokKodyGrouped();
 $nokAfoMap      = getNokAfoVisibilityMap();
 $prostojTypy    = getProstojTypyList();
 $smenyList      = getSmenyList();
+$prestavkyList  = getPrestavkyList();
 
 // Prepare NOK groups for template (converted to simple list without grouping)
 $nokTemplateGroups = [
@@ -79,7 +80,7 @@ $pracovisteSuggest = array_map(static function (array $pw): array {
         'ns' => (string)($pw['nakladove_stredisko'] ?? ''),
         'norma' => $pw['norma_ks_min'] ?? '',
         'cycle' => $pw['cyklus_min'] ?? '',
-        'typ' => (string)($pw['typ'] ?? ''),
+        'typ' => trim((string)($pw['typ'] ?? '')), // Přidán trim pro jistotu proti mezerám z DB
         'search' => mb_strtolower(
             implode(' ', [
                 $label,
@@ -259,7 +260,7 @@ require APP_ROOT . '/includes/layout.php';
             <label class="form-label-dvd"><?= t('smena') ?> <span class="req">*</span></label>
             <select name="smena" id="input-smena" class="form-select" required onchange="applySmenaDefaults()">
                 <?php foreach ($smenyList as $i => $sm): ?>
-                <option value="<?= h($sm['kod']) ?>"<?= $i === 1 ? ' selected' : '' ?>><?= h($sm['nazev']) ?></option>
+                <option value="<?= h($sm['kod']) ?>"<?= $i === 0 ? ' selected' : '' ?>><?= h($sm['nazev']) ?></option>
                 <?php endforeach; ?>
             </select>
         </div>
@@ -281,7 +282,7 @@ require APP_ROOT . '/includes/layout.php';
         </div>
         <div class="col-6 col-md-2">
             <label class="form-label-dvd"><?= t('prestas') ?></label>
-            <input type="number" name="prestas_min" class="form-control" min="0" max="240" value="0">
+            <input type="number" name="prestas_min" class="form-control" min="0" max="240" placeholder="0">
         </div>
         <div class="col-6 col-md-2">
             <label class="form-label-dvd"><?= t('cisty_cas') ?></label>
@@ -325,35 +326,49 @@ require APP_ROOT . '/includes/layout.php';
     </div>
     <div class="card-body-dvd">
     <div class="row g-3">
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-2">
             <label class="form-label-dvd"><?= t('vyrobeno') ?> <span class="req">*</span></label>
-            <input type="number" name="vyrobeno_ks" id="vyrobeno" class="form-control" min="0" value="0" required onchange="calcKs();calcOEE()">
+            <input type="number" name="vyrobeno_ks" id="vyrobeno" class="form-control" min="0" placeholder="0" required onchange="calcKs();calcOEE()">
         </div>
         <div class="col-6 col-md-2">
             <label class="form-label-dvd"><?= t('nok_ks') ?></label>
-            <input type="number" name="nok_ks" id="nokks" class="form-control" min="0" value="0" onchange="calcKs();calcOEE()">
+            <input type="number" name="nok_ks" id="nokks" class="form-control" min="0" placeholder="0" onchange="calcKs();calcOEE()">
         </div>
-        <div class="col-6 col-md-2">
-            <label class="form-label-dvd"><?= t('k_posouzeni') ?></label>
-            <input type="number" name="k_posouzeni" class="form-control" min="0" value="0">
+        
+        <?php foreach(['tech'=>t('tech_short'),'blok'=>t('blok_short'),'tnz'=>t('tnz_short')] as $k=>$l): ?>
+        <div class="col-4 col-md-2">
+            <label class="form-label-dvd"><?= $l ?></label>
+            <input type="number" name="<?= $k ?>" id="<?= $k ?>" class="form-control" min="0" placeholder="0" onchange="calcKs();calcOEE()">
         </div>
-        <div class="col-6 col-md-2">
+        <?php endforeach; ?>
+
+        <div class="col-12 col-md-2">
             <label class="form-label-dvd"><?= t('vyrobeno_dobre') ?></label>
             <div class="calc-display text-accent" id="disp-dobre">—</div>
-        </div>
-        <div class="col-6 col-md-3">
-            <div class="d-flex gap-3 pt-4">
-                <?php foreach(['tech'=>t('tech_short'),'blok'=>t('blok_short'),'tnz'=>t('tnz_short')] as $k=>$l): ?>
-                <div class="form-check"><input class="form-check-input" type="checkbox" name="<?= $k ?>" id="chk-<?= $k ?>">
-                <label class="form-check-label" for="chk-<?= $k ?>" style="font-size:.8rem"><?= $l ?></label></div>
-                <?php endforeach; ?>
-            </div>
         </div>
         <div class="col-12">
             <label class="form-label-dvd"><?= t('poznamky') ?></label>
             <textarea name="poznamky" class="form-control" rows="2" placeholder="<?= t('notes_placeholder') ?>"></textarea>
         </div>
     </div>
+    </div>
+</div>
+
+<!-- ── 06 NOK záznamy ── -->
+<div class="card-dvd mb-3" id="sec-nok">
+    <div class="card-header-dvd" data-collapsible>
+        <span class="s-num">06</span>
+        <span class="s-title"><i class="bi bi-x-octagon me-2" style="color:var(--accent2)"></i><?= t('sec_nok') ?>
+            <span id="nok-badge" style="display:none;background:rgba(255,107,53,.18);color:var(--accent2);font-family:var(--mono);font-size:.62rem;border-radius:3px;padding:.1rem .4rem;margin-left:.5rem"></span>
+        </span>
+        <i class="bi bi-chevron-down s-toggle"></i>
+    </div>
+    <div class="card-body-dvd">
+    <div id="nok-empty-hint" style="display:none;font-size:.78rem;color:var(--muted);margin-bottom:.6rem;">
+        <?= h(t('sec_nok_empty_for_afo')) ?>
+    </div>
+    <input type="hidden" name="nok[134]" id="nok_134" value="0">
+    <div class="row g-3" id="nok-groups-container"></div>
     </div>
 </div>
 
@@ -385,51 +400,6 @@ require APP_ROOT . '/includes/layout.php';
     <button type="button" class="btn-add-row" onclick="addTechRow()">
         <i class="bi bi-plus-circle me-2"></i><?= t('add_prostoj') ?>
     </button>
-    </div>
-</div>
-
-<!-- ── 06 NOK záznamy ── -->
-<div class="card-dvd mb-3" id="sec-nok">
-    <div class="card-header-dvd" data-collapsible>
-        <span class="s-num">06</span>
-        <span class="s-title"><i class="bi bi-x-octagon me-2" style="color:var(--accent2)"></i><?= t('sec_nok') ?>
-            <span id="nok-badge" style="display:none;background:rgba(255,107,53,.18);color:var(--accent2);font-family:var(--mono);font-size:.62rem;border-radius:3px;padding:.1rem .4rem;margin-left:.5rem"></span>
-        </span>
-        <i class="bi bi-chevron-down s-toggle"></i>
-    </div>
-    <div class="card-body-dvd">
-    <div id="nok-empty-hint" style="display:none;font-size:.78rem;color:var(--muted);margin-bottom:.6rem;">
-        <?= h(t('sec_nok_empty_for_afo')) ?>
-    </div>
-    <input type="hidden" name="nok[134]" id="nok_134" value="0">
-    <div class="row g-0" id="nok-groups-container"></div>
-    </div>
-</div>
-
-<!-- ── 07 Hodinové sledování ── -->
-<div class="card-dvd mb-3" id="sec-hourly">
-    <div class="card-header-dvd" data-collapsible>
-        <span class="s-num">07</span>
-        <span class="s-title"><i class="bi bi-bar-chart-steps me-2" style="color:var(--accent3)"></i><?= t('sec_hourly') ?></span>
-        <i class="bi bi-chevron-down s-toggle"></i>
-    </div>
-    <div class="card-body-dvd">
-    <div class="hourly-grid">
-    <?php foreach(['06-07','07-08','08-09','09-10','10-11','11-12','12-13','13-14','14-15','15-16','16-17','17-18','18-19','19-20','20-21','21-22','22-23','23-00','00-01','01-02','02-03','03-04','04-05','05-06'] as $slot): ?>
-    <div class="hour-card">
-        <div class="hour-label"><?= $slot ?></div>
-        <input type="hidden" name="hodiny[<?= $slot ?>][hodina_od]" value="<?= $slot ?>">
-        <div class="row g-1">
-            <div class="col-4"><div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem"><?= t('hour_from') ?></div>
-                <input type="number" name="hodiny[<?= $slot ?>][vyrobeno]" class="form-control" min="0" placeholder="ks" style="padding:.28rem .4rem;font-size:.75rem"></div>
-            <div class="col-4"><div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem"><?= t('hour_p') ?></div>
-                <input type="number" name="hodiny[<?= $slot ?>][p_minuty]" class="form-control" min="0" max="60" placeholder="0" style="padding:.28rem .4rem;font-size:.75rem"></div>
-            <div class="col-4"><div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem"><?= t('hour_t') ?></div>
-                <input type="number" name="hodiny[<?= $slot ?>][t_minuty]" class="form-control" min="0" max="60" placeholder="0" style="padding:.28rem .4rem;font-size:.75rem"></div>
-        </div>
-    </div>
-    <?php endforeach; ?>
-    </div>
     </div>
 </div>
 
@@ -548,17 +518,119 @@ const prostojTypy = <?= json_encode(array_column($prostojTypy,'popis','kod')) ?>
 const pracovniciSuggest = <?= json_encode($pracovniciSuggest, JSON_UNESCAPED_UNICODE) ?>;
 const pracovniciById = Object.fromEntries(pracovniciSuggest.map(item => [String(item.id), item]));
 const workerPositionOptions = <?= json_encode($workerPositionOptions) ?>;
+const prestavkyDef = <?= json_encode($prestavkyList, JSON_UNESCAPED_UNICODE) ?>;
+
+// Uchování již zadaných hodnot při změně časů
+let savedHourlyValues = {};
+
+function renderHourlyGrid() {
+    const container = document.getElementById('hourly-container');
+    if (!container) return;
+
+    // Uložíme si aktuálně napsaná data z formuláře, abychom o ně nepřišli při změně
+    container.querySelectorAll('.hour-card').forEach(card => {
+        const slot = card.dataset.slot;
+        if (slot) {
+            savedHourlyValues[slot] = {
+                vyr: card.querySelector('input[name$="[vyrobeno]"]')?.value || '',
+                p: card.querySelector('input[name$="[p_minuty]"]')?.value || '',
+                t: card.querySelector('input[name$="[t_minuty]"]')?.value || ''
+            };
+        }
+    });
+
+    const casOdVal = document.getElementById('cas-od')?.value || '06:00';
+    const casDoVal = document.getElementById('cas-do')?.value;
+    const pracDobaVal = parseInt(document.getElementById('prac-doba')?.value, 10) || 480;
+
+    let pocetHodin = 8;
+
+    // Pokud máme zadaný příchod i odchod, spočítáme přesný počet hodin z rozmezí
+    if (casOdVal && casDoVal) {
+        let [oh, om] = casOdVal.split(':').map(Number);
+        let [dh, dm] = casDoVal.split(':').map(Number);
+        if (!isNaN(oh) && !isNaN(dh)) {
+            let totalMin = (dh * 60 + dm) - (oh * 60 + om);
+            if (totalMin <= 0) totalMin += 1440; // Noční přes půlnoc
+            pocetHodin = Math.max(1, Math.round(totalMin / 60));
+        }
+    } else {
+        pocetHodin = Math.max(1, Math.round(pracDobaVal / 60));
+    }
+
+    let startHour = parseInt(casOdVal.split(':')[0], 10);
+    if (isNaN(startHour)) startHour = 6;
+
+    let html = '';
+
+    for (let i = 0; i < pocetHodin; i++) {
+        const hFrom = (startHour + i) % 24;
+        const hTo = (startHour + i + 1) % 24;
+        
+        const pad = n => String(n).padStart(2, '0');
+        const slot = `${pad(hFrom)}-${pad(hTo)}`;
+
+        const existing = savedHourlyValues[slot] || { vyr: '', p: '', t: '' };
+
+        html += `
+        <div class="hour-card" data-slot="${slot}">
+            <div class="hour-label">${slot}</div>
+            <input type="hidden" name="hodiny[${slot}][hodina_od]" value="${slot}">
+            <div class="row g-1">
+                <div class="col-4">
+                    <div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem">${window.LANG_TEXT.hour_from || 'Vyrobeno'}</div>
+                    <input type="number" name="hodiny[${slot}][vyrobeno]" class="form-control" min="0" placeholder="ks" 
+                           value="${escapeHtml(existing.vyr)}" style="padding:.28rem .4rem;font-size:.75rem">
+                </div>
+                <div class="col-4">
+                    <div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem">P (min)</div>
+                    <input type="number" name="hodiny[${slot}][p_minuty]" class="form-control" min="0" max="60" placeholder="0" 
+                           value="${escapeHtml(existing.p)}" style="padding:.28rem .4rem;font-size:.75rem">
+                </div>
+                <div class="col-4">
+                    <div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem">T (min)</div>
+                    <input type="number" name="hodiny[${slot}][t_minuty]" class="form-control" min="0" max="60" placeholder="0" 
+                           value="${escapeHtml(existing.t)}" style="padding:.28rem .4rem;font-size:.75rem">
+                </div>
+            </div>
+        </div>`;
+    }
+
+    container.innerHTML = html;
+}
 
 // Clock + meta
+function getISOWeekNumber(dStr) {
+    if (!dStr) return '';
+    const parts = dStr.split('-').map(Number);
+    if (parts.length !== 3) return '';
+    
+    // Vytvoření data v lokálním čase (zabrání posunu časového pásma)
+    const date = new Date(parts[0], parts[1] - 1, parts[2]);
+    if (isNaN(date.getTime())) return '';
+    
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+    const week1 = new Date(date.getFullYear(), 0, 4);
+    return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+}
+
 function updateMeta() {
     const d = document.getElementById('input-datum').value;
     if (!d) return;
-    const dt = new Date(d);
-    const jan4 = new Date(dt.getFullYear(),0,4);
-    const dy = (dt - new Date(dt.getFullYear(),0,0))/86400000;
-    const cw = Math.ceil((dy - (jan4.getDay()||7) + 4) / 7);
-    document.getElementById('disp-cw').textContent = 'KT '+cw;
-    document.getElementById('header-meta').textContent = new Intl.DateTimeFormat('cs-CZ',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}).format(dt);
+    
+    // Výpočet přesného kalendářního týdne
+    const cw = getISOWeekNumber(d);
+    document.getElementById('disp-cw').textContent = 'KT ' + cw;
+    
+    // Formátování názvu dne v hlavičce
+    const parts = d.split('-').map(Number);
+    if (parts.length === 3) {
+        const dt = new Date(parts[0], parts[1] - 1, parts[2]);
+        document.getElementById('header-meta').textContent = new Intl.DateTimeFormat('cs-CZ', {
+            weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric'
+        }).format(dt);
+    }
 }
 updateMeta();
 
@@ -572,40 +644,32 @@ function setTyp(typ) {
     b.textContent = typ==='serie'?'SÉRIE':'FILTRY';
     b.className = 'badge-'+typ;
     refreshPracovisteSuggestByTyp();
+    calcCisty();
 }
 
 function getPracovisteSuggestForTyp(typ) {
     return pracovisteSuggest.filter(item => item.typ === typ || item.typ === 'obe');
 }
 
-function renderPracovisteDatalist(list) {
-    // No-op: custom dropdown renders on input, not on typ change
-}
-
 let pracovisteDropdownHighlight = -1;
 
 function onPracovisteInput(val) {
     const q = String(val || '').trim();
-    // Only clear hidden id when user is actively typing (not on focus with existing value)
+    // Only clear hidden id when user is actively typing
     const hiddenId = document.getElementById('pracovisite_id');
     if (hiddenId && event && event.type === 'input') hiddenId.value = '';
 
     if (!q) {
-        // Show full list on empty / focus
-        renderPracovisteDropdown(activePracovisteSuggest.slice(0, 80));
+        // Zvýšeno na 200, aby se ukázala i nově přidaná pracoviště na konci tabulky, když se jen proklikává myší
+        renderPracovisteDropdown(activePracovisteSuggest.slice(0, 200));
         return;
     }
     
-    let results;
-    const qNum = /^\d{1,3}$/.test(q) ? parseInt(q, 10) : null;
-    if (qNum !== null) {
-        results = activePracovisteSuggest.filter(item => String(item.cisloId).startsWith(q));
-    } else {
-        const qNorm = q.toLocaleLowerCase('cs-CZ');
-        results = activePracovisteSuggest.filter(item => item.search.includes(qNorm));
-    }
+    // Zjednodušené robustní vyhledávání (najde jakýkoliv text, číslo, SAP, AFO všude)
+    const qNorm = q.toLocaleLowerCase('cs-CZ');
+    const results = activePracovisteSuggest.filter(item => item.search.includes(qNorm));
 
-    renderPracovisteDropdown(results.slice(0, 50));
+    renderPracovisteDropdown(results.slice(0, 100));
 }
 
 function renderPracovisteDropdown(list) {
@@ -696,7 +760,9 @@ function renderNokGroups() {
             const id = Number(item.id || 0);
             const kod = escapeHtml(item.kod || '');
             const popis = escapeHtml(item.popis || '');
-            items.push(`<div class="nok-item" data-nok-id="${id}">
+            
+            // Přidán style="padding-right: 3rem; padding-bottom: 0.5rem;" pro jasné oddělení sloupců a řádků
+            items.push(`<div class="nok-item col-12 col-md-6 col-xl-4" data-nok-id="${id}" style="padding-right: 3rem; padding-bottom: 0.5rem;">
                 <span class="nok-code">${kod}</span>
                 <label for="nok_${id}">${popis}</label>
                 <input type="number" name="nok[${id}]" id="nok_${id}" class="form-control nok-qty" min="0" max="9999" placeholder="0" onchange="updateNokBadge()">
@@ -706,18 +772,6 @@ function renderNokGroups() {
 
     container.innerHTML = items.join('');
     container.dataset.rendered = '1';
-}
-
-function refreshPracovisteSuggestByTyp() {
-    activePracovisteSuggest = getPracovisteSuggestForTyp(currentTyp);
-    renderPracovisteDatalist(activePracovisteSuggest);
-
-    const hidden = document.getElementById('pracovisite_id');
-    const selectedId = hidden ? String(hidden.value || '') : '';
-    if (selectedId && !activePracovisteSuggest.some(item => String(item.id) === selectedId)) {
-        document.getElementById('pracovisite_search').value = '';
-        loadPracovisteData('');
-    }
 }
 
 // Pracoviště auto-fill
@@ -869,18 +923,94 @@ const sDef = <?= json_encode(array_combine(
         'pauza' => (int)$s['pauza_min'],
     ], $smenyList)
 ), JSON_UNESCAPED_UNICODE) ?>;
+
+function normZoneKey(val) {
+    return String(val || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+}
+
+function toMinutes(value) {
+    const src = String(value || '').trim();
+    if (!src || !src.includes(':')) return null;
+    const [h, m] = src.split(':').map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
+}
+
+function overlapMinutes(aStart, aEnd, bStart, bEnd) {
+    const from = Math.max(aStart, bStart);
+    const to = Math.min(aEnd, bEnd);
+    return Math.max(0, to - from);
+}
+
+function getCurrentZonaLabel() {
+    return currentTyp === 'filtry' ? 'Filtry' : 'Série';
+}
+
+function getCurrentRezimFromSmena(smenaKod) {
+    return String(smenaKod || '').toUpperCase().includes('12') ? 12 : 8;
+}
+
+function computeDynamicPauzaMinutes() {
+    const smenaKod = String(document.getElementById('input-smena')?.value || '').toUpperCase();
+    const casOd = document.getElementById('cas-od')?.value || '';
+    const casDo = document.getElementById('cas-do')?.value || '';
+    const odMin = toMinutes(casOd);
+    const doMin = toMinutes(casDo);
+    if (odMin === null || doMin === null || !smenaKod) return null;
+
+    const zonaWanted = normZoneKey(getCurrentZonaLabel());
+    const rezimWanted = getCurrentRezimFromSmena(smenaKod);
+
+    let workEnd = doMin;
+    if (workEnd <= odMin) workEnd += 1440;
+
+    let total = 0;
+    prestavkyDef.forEach((br) => {
+        if ((parseInt(br.aktivni, 10) || 0) !== 1) return;
+        if (normZoneKey(br.zona) !== zonaWanted) return;
+        if ((parseInt(br.rezim_hod, 10) || 0) !== rezimWanted) return;
+        if (String(br.smena_kod || '').toUpperCase() !== smenaKod) return;
+
+        const bStartBase = toMinutes(br.cas_od);
+        const bEndBaseRaw = toMinutes(br.cas_do);
+        if (bStartBase === null || bEndBaseRaw === null) return;
+
+        let bEndBase = bEndBaseRaw;
+        if (bEndBase <= bStartBase) bEndBase += 1440;
+
+        const overlapA = overlapMinutes(odMin, workEnd, bStartBase, bEndBase);
+        const overlapB = overlapMinutes(odMin, workEnd, bStartBase + 1440, bEndBase + 1440);
+        total += Math.max(overlapA, overlapB);
+    });
+
+    return Math.max(0, total);
+}
+
+function applyDynamicPauza() {
+    const pauzaInput = document.getElementById('pauza');
+    if (!pauzaInput) return;
+    const minutes = computeDynamicPauzaMinutes();
+    if (minutes === null) return;
+    pauzaInput.value = String(minutes);
+}
+
 function applySmenaDefaults() {
     const s = document.getElementById('input-smena').value;
     const d = sDef[s]; if(!d) return;
     document.getElementById('cas-od').value    = d.od;
     document.getElementById('cas-do').value    = d.do;
     document.getElementById('prac-doba').value = d.min;
-    document.getElementById('pauza').value     = d.pauza;
+    applyDynamicPauza();
     calcCisty();
 }
 applySmenaDefaults();
 
 function calcCisty() {
+    applyDynamicPauza();
     const od=document.getElementById('cas-od').value, dc=document.getElementById('cas-do').value;
     const pauza=parseInt(document.getElementById('pauza').value)||0;
     if(od&&dc){
@@ -893,12 +1023,20 @@ function calcCisty() {
         document.getElementById('cisty-hidden').value=cisty;
     }
     calcOEE();
+    renderHourlyGrid();
 }
 
 function calcKs() {
-    const v=parseInt(document.getElementById('vyrobeno').value)||0;
-    const n=parseInt(document.getElementById('nokks').value)||0;
-    document.getElementById('disp-dobre').textContent=(Math.max(0,v-n)).toLocaleString('cs-CZ');
+    const v = parseInt(document.getElementById('vyrobeno').value) || 0;
+    const n = parseInt(document.getElementById('nokks').value) || 0;
+    const tech = parseInt(document.getElementById('tech').value) || 0;
+    const blok = parseInt(document.getElementById('blok').value) || 0;
+    const tnz = parseInt(document.getElementById('tnz').value) || 0;
+    
+    // Vyrobeno dobře: Celkem - NOK - odevzdané ks (Tech, Blok, TNZ)
+    const dobre = Math.max(0, v - n - tech - blok - tnz);
+    
+    document.getElementById('disp-dobre').textContent = dobre.toLocaleString('cs-CZ');
     updateNokBadge();
 }
 
@@ -932,84 +1070,56 @@ function calcProstoje() {
     calcOEE();
 }
 
-/*function calcOEE() {
-    const vyr=parseInt(document.getElementById('vyrobeno').value)||0;
-    const nok=parseInt(document.getElementById('nokks').value)||0;
-    const prac=parseInt(document.getElementById('prac-doba').value)||0;
-    const pauza2=parseInt(document.getElementById('pauza').value)||0;
-    const plan=parseInt(document.getElementById('ps-plan')?.textContent || '0', 10) || 0;
-    const cisty=Math.max(0,prac-pauza2);
-    const netTime=Math.max(1,prac-plan-pauza2);
-    document.getElementById('cisty-hidden').value=cisty;
-    document.getElementById('disp-cisty').textContent=cisty+' min';
-    let A=null,P=null,Q=null,OEE=null;
-    if(cisty>0&&prac>0) A=Math.min(1.5,cisty/netTime);
-    if(pwData.cycle>0&&cisty>0) P=Math.min(1.5,vyr/(cisty/pwData.cycle));
-    if(vyr>0) Q=(vyr-nok)/vyr;
-    if(A!==null&&P!==null&&Q!==null) OEE=Math.min(1,A*P*Q);
-    const pct=v=>v!==null?(v*100).toFixed(1)+'%':'—';
-    ['a','p','q'].forEach((k,i)=>{
-        const v=[A,P,Q][i];
-        document.getElementById('oee-val-'+k).textContent=pct(v);
-        if(v!==null) document.getElementById('oee-bar-'+k).style.width=Math.min(100,v*100).toFixed(1)+'%';
-    });
-    document.getElementById('oee-total').textContent=OEE!==null?(OEE*100).toFixed(1)+'%':'—';
-    const st=document.getElementById('oee-status');
-    if(OEE!==null){const p2=OEE*100;st.textContent=p2>=85?'✓ '+window.LANG_TEXT.oee_status_above:p2>=70?'⚠ '+window.LANG_TEXT.oee_status_below:'✗ '+window.LANG_TEXT.oee_status_far_below;st.style.color=p2>=85?'var(--accent)':p2>=70?'var(--warn)':'var(--accent2)';}
-    // Summary
-    const sl=document.getElementById('summary-lines');
-    const row=(l,v,c)=>`<div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:.12rem 0"><span style="color:var(--muted)">${l}</span><span class="mono" style="font-weight:600;color:${c||'var(--text)'}">${v}</span></div>`;
-    sl.innerHTML=row(window.LANG_TEXT.summary_net_time,cisty+' min')+row(window.LANG_TEXT.summary_produced,vyr.toLocaleString())+row(window.LANG_TEXT.summary_nok,nok+' ks',nok>0?'var(--accent2)':'var(--text)')+row(window.LANG_TEXT.summary_ok,(Math.max(0,vyr-nok)).toLocaleString(),'var(--accent)')+row(window.LANG_TEXT.summary_oee,pct(OEE),OEE>=.85?'var(--accent)':OEE>=.7?'var(--warn)':'var(--accent2)');
-}*/
-
 function calcOEE() {
     const vyr = parseInt(document.getElementById('vyrobeno').value) || 0;
     const nok = parseInt(document.getElementById('nokks').value) || 0;
+    const tech = parseInt(document.getElementById('tech').value) || 0;
+    const blok = parseInt(document.getElementById('blok').value) || 0;
+    const tnz = parseInt(document.getElementById('tnz').value) || 0;
+    
     const prac = parseInt(document.getElementById('prac-doba').value) || 0;
     const pauza2 = parseInt(document.getElementById('pauza').value) || 0;
     
-    // Načtení plánovaných a VŠECH prostojů z DOMu
     const plan = parseInt(document.getElementById('ps-plan')?.textContent || '0', 10) || 0;
     const celkProstoje = parseInt(document.getElementById('ps-celk')?.textContent || '0', 10) || 0;
+    const neplanProstoje = Math.max(0, celkProstoje - plan);
     
-    // Čistý čas = Pracovní doba mínus pauza
     const cisty = Math.max(0, prac - pauza2);
-    
     document.getElementById('cisty-hidden').value = cisty;
     document.getElementById('disp-cisty').textContent = cisty + ' min';
     
     let A = null, P = null, Q = null, OEE = null;
     
     if (cisty > 0 && prac > 0) {
-        // Správný základ pro Dostupnost (jen čistý čas mínus plánované prostoje)
-        const planovanyCasVyroby = Math.max(1, cisty - plan);
-        // Správný čas pro Výkon (čistý čas mínus úplně všechny prostoje)
-        const operacniCas = Math.max(0, cisty - celkProstoje);
+        const planovanyCasVyroby = Math.max(0, cisty - plan);
+        const operacniCas = Math.max(0, planovanyCasVyroby - neplanProstoje);
         
         // 1. DOSTUPNOST
-        A = operacniCas / planovanyCasVyroby;
+        if (planovanyCasVyroby > 0) {
+            A = Math.min(1.0, Math.max(0, operacniCas / planovanyCasVyroby));
+        }
         
-        // 2. VÝKON (počítáno z operačního času místo čistého)
+        // 2. VÝKON
         if (pwData.cycle > 0 && operacniCas > 0) {
-            P = vyr / (operacniCas / pwData.cycle);
+            P = Math.min(1.5, Math.max(0, vyr / (operacniCas / pwData.cycle)));
         } else if (operacniCas === 0) {
             P = 0;
         }
         
         // 3. KVALITA
+        // Matematika zde záměrně neodečítá Tech/Blok/TNZ. Kvalitu sráží POUZE vyloženě vadné (NOK) kusy.
         if (vyr > 0) {
-            Q = (vyr - nok) / vyr;
+            Q = Math.min(1.0, Math.max(0, (vyr - nok) / vyr));
         } else {
             Q = 0;
         }
         
-        // OEE CELKEM (zastropováno max na 100%)
+        // 4. OEE CELKEM
         if (A !== null && P !== null && Q !== null) {
-            OEE = Math.min(1, A * P * Q);
+            OEE = Math.min(1.0, Math.max(0, A * P * Q));
         }
     }
     
-    // Vykreslení čísel a progress barů
     const pct = v => v !== null ? (v * 100).toFixed(1) + '%' : '—';
     
     ['a','p','q'].forEach((k,i) => {
@@ -1027,16 +1137,18 @@ function calcOEE() {
         st.style.color = p2 >= 85 ? 'var(--accent)' : (p2 >= 70 ? 'var(--warn)' : 'var(--accent2)');
     }
     
-    // Summary boxík
     const sl = document.getElementById('summary-lines');
     const row = (l, v, c) => `<div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:.12rem 0"><span style="color:var(--muted)">${l}</span><span class="mono" style="font-weight:600;color:${c||'var(--text)'}">${v}</span></div>`;
+    
+    // Zde počítáme "Vyrobeno dobře" do souhrnné tabulky pro jistotu ze stejných dat
+    const dobre = Math.max(0, vyr - nok - tech - blok - tnz);
+
     sl.innerHTML = row(window.LANG_TEXT.summary_net_time, cisty + ' min') + 
                    row(window.LANG_TEXT.summary_produced, vyr.toLocaleString()) + 
                    row(window.LANG_TEXT.summary_nok, nok + ' ks', nok > 0 ? 'var(--accent2)' : 'var(--text)') + 
-                   row(window.LANG_TEXT.summary_ok, (Math.max(0, vyr - nok)).toLocaleString(), 'var(--accent)') + 
+                   row(window.LANG_TEXT.summary_ok, dobre.toLocaleString(), 'var(--accent)') + 
                    row(window.LANG_TEXT.summary_oee, pct(OEE), OEE >= .85 ? 'var(--accent)' : (OEE >= .7 ? 'var(--warn)' : 'var(--accent2)'));
 }
-
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
@@ -1129,6 +1241,14 @@ function recalcDowntimeRowMinutes(row) {
     const minutes = computeDowntimeMinutesFromRange(odInput.value, doInput.value);
     if (minutes === null) return;
     minInput.value = String(minutes);
+
+    // Kontrola platnosti časového rozmezí vůči směně
+    const isValid = validateDowntimeRow(row);
+    if (!isValid && odInput.value && doInput.value) {
+        const { shiftOd, shiftDo } = getCurrentShiftBounds();
+        showToast('warn', `⚠ Prostoj (${odInput.value} - ${doInput.value}) je mimo čas směny (${shiftOd} - ${shiftDo})!`);
+    }
+
     updateTechSum();
 }
 
@@ -1372,7 +1492,8 @@ const modal = document.getElementById('confirm-modal');
 
 async function openConfirmModal(e) {
     e.preventDefault();
-    // Validace povinných polí před zobrazením modalu
+    
+    // Validace povinných polí
     const pracoviste = document.getElementById('pracovisite_id').value;
     const datum = document.getElementById('input-datum').value;
     if (!pracoviste || !datum) {
@@ -1380,6 +1501,16 @@ async function openConfirmModal(e) {
         document.getElementById('sec-ident').scrollIntoView({behavior:'smooth'});
         return;
     }
+
+    // NOVÉ: Kontrola, zda prostoje nejsou mimo směnu
+    const dtCheck = validateAllDowntimes();
+    if (!dtCheck.allValid) {
+        const { shiftOd, shiftDo } = getCurrentShiftBounds();
+        showToast('error', `✗ Vložené prostoje (${dtCheck.invalidCount}) jsou mimo čas směny (${shiftOd} - ${shiftDo})!`);
+        document.getElementById('sec-tech')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
+
     if (!await validateNokConsistencyBeforeSubmit()) {
         return;
     }
@@ -1478,10 +1609,102 @@ function formReset() {
     addTechRow();
 }
 
+function getCurrentShiftBounds() {
+    const shiftOd = document.getElementById('cas-od')?.value || (sDef[document.getElementById('input-smena')?.value]?.od || '06:00');
+    const shiftDo = document.getElementById('cas-do')?.value || (sDef[document.getElementById('input-smena')?.value]?.do || '14:00');
+    return { shiftOd, shiftDo };
+}
+
+function isTimeRangeWithinShift(dtOd, dtDo, shiftOd, shiftDo) {
+    if (!dtOd || !dtDo || !shiftOd || !shiftDo) return true;
+
+    const toMin = t => {
+        const parts = String(t || '').split(':').map(Number);
+        if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+        return parts[0] * 60 + parts[1];
+    };
+
+    const sOd = toMin(shiftOd);
+    let sDo = toMin(shiftDo);
+    let dOd = toMin(dtOd);
+    let dDo = toMin(dtDo);
+
+    if (sOd === null || sDo === null || dOd === null || dDo === null) return true;
+
+    // Noční směna přes půlnoc
+    if (sDo <= sOd) sDo += 1440;
+
+    // Úprava začátku prostojů pro noční směny
+    if (dOd < sOd && (dOd + 1440) <= sDo) {
+        dOd += 1440;
+    }
+
+    // Úprava konce prostojů
+    if (dDo <= (dOd % 1440)) {
+        dDo += 1440;
+    } else if (dOd >= 1440 && dDo < 1440) {
+        dDo += 1440;
+    }
+
+    return dOd >= sOd && dDo <= sDo;
+}
+
+function validateDowntimeRow(row) {
+    const odInput = row.querySelector('input[name$="[cas_od]"]');
+    const doInput = row.querySelector('input[name$="[cas_do]"]');
+    if (!odInput || !doInput) return true;
+
+    const od = odInput.value;
+    const doVal = doInput.value;
+    if (!od || !doVal) {
+        odInput.style.borderColor = '';
+        doInput.style.borderColor = '';
+        return true;
+    }
+
+    const { shiftOd, shiftDo } = getCurrentShiftBounds();
+    const valid = isTimeRangeWithinShift(od, doVal, shiftOd, shiftDo);
+
+    if (!valid) {
+        odInput.style.borderColor = 'var(--accent2)';
+        doInput.style.borderColor = 'var(--accent2)';
+        odInput.title = `Prostoj (${od}-${doVal}) je mimo čas směny (${shiftOd}-${shiftDo})`;
+        doInput.title = `Prostoj (${od}-${doVal}) je mimo čas směny (${shiftOd}-${shiftDo})`;
+    } else {
+        odInput.style.borderColor = '';
+        doInput.style.borderColor = '';
+        odInput.title = '';
+        doInput.title = '';
+    }
+
+    return valid;
+}
+
+function validateAllDowntimes() {
+    let allValid = true;
+    let invalidCount = 0;
+    document.querySelectorAll('#tech-tbody tr').forEach(row => {
+        const od = row.querySelector('input[name$="[cas_od]"]')?.value;
+        const doVal = row.querySelector('input[name$="[cas_do]"]')?.value;
+        if (od && doVal) {
+            if (!validateDowntimeRow(row)) {
+                allValid = false;
+                invalidCount++;
+            }
+        }
+    });
+    return { allValid, invalidCount };
+}
+
 // Init
 addWorkerRow();
 addTechRow();
 calcKs(); calcProstoje();
 setTyp('serie');
+
+
+// Při startu vygenerovat hodiny
+renderHourlyGrid();
+
 </script>
 <?php require APP_ROOT . '/includes/layout_end.php'; ?>

@@ -1,6 +1,6 @@
 # 🌍 Nový Jazykový Systém – Pokyny
 
-## Stav dokumentace (v5.3)
+## Stav dokumentace (v5.3.3)
 
 - Dokumentace odpovídá stavu release `v5.0.7`.
 - Pro sjednocený report `Týdenní výroba` používej klíč `kt_report_all_title`.

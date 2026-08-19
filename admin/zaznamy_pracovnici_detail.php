@@ -1,4 +1,5 @@
 <?php
+// admin/zaznamy_pracovnici_detail.php – Detailní přehled konkrétního pracovníka
 require_once dirname(__DIR__) . '/includes/config.php';
 requireAnyRole(['superadmin', 'admin', 'read', 'writer']);
 
@@ -44,11 +45,43 @@ if (str_starts_with($workerKey, 'manual:')) {
 }
 
 $whereSql = 'WHERE ' . implode(' AND ', $where);
+
+// Opravený JOIN prostojů s rozpadem na plánované a neplánované prostoje
 $downtimeJoin = "LEFT JOIN (
-    SELECT zapis_id, SUM(minuty) AS dt_total
+    SELECT zapis_id,
+        SUM(CASE WHEN kategorie='plan' THEN minuty ELSE 0 END) AS dt_plan,
+        SUM(CASE WHEN kategorie IN ('tech','vyr','kval','log','ost') THEN minuty ELSE 0 END) AS dt_neplan,
+        SUM(minuty) AS dt_total
     FROM zapisy_prostoje
     GROUP BY zapis_id
 ) dt ON dt.zapis_id = z.id";
+
+// Pomocný SQL výraz pro vážené OEE konkrétního pracovníka
+$oeeSqlExpr = "LEAST(1.0, GREATEST(0.0,
+    -- Dostupnost (A)
+    (
+        SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(dt.dt_plan, 0) - COALESCE(dt.dt_neplan, 0)))
+        / NULLIF(SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(dt.dt_plan, 0))), 0)
+    )
+    *
+    -- Výkonnost (P)
+    (
+        SUM(z.vyrobeno_ks)
+        / NULLIF(SUM(
+            CASE 
+                WHEN z.cycle_time_min > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(dt.dt_plan, 0) - COALESCE(dt.dt_neplan, 0)) / z.cycle_time_min
+                WHEN z.norma_ks > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(dt.dt_plan, 0) - COALESCE(dt.dt_neplan, 0)) * z.norma_ks
+                ELSE 0
+            END
+        ), 0)
+    )
+    *
+    -- Kvalita (Q)
+    (
+        SUM(GREATEST(0, z.vyrobeno_ks - z.nok_ks))
+        / NULLIF(SUM(z.vyrobeno_ks), 0)
+    )
+)) * 100";
 
 $worker = db_row("SELECT
     COALESCE(CAST(p_id.id AS CHAR), CAST(p_interni.id AS CHAR), CAST(pn.id AS CHAR), CONCAT('manual:', LOWER(TRIM(zp.jmeno)))) AS worker_key,
@@ -63,11 +96,7 @@ $worker = db_row("SELECT
         SUM(z.vyrobeno_dobre_ks) AS dobre_ks,
         SUM(z.cisty_cas_min) AS cisty_cas_min,
         SUM(COALESCE(dt.dt_total,0)) AS prostoj_celkem_min,
-        ROUND(
-            COALESCE(
-                (SUM(z.cisty_cas_min) / NULLIF(SUM(z.pracovni_doba_min), 0)) * (SUM(z.vyrobeno_ks) / NULLIF(SUM(z.norma_ks), 0)) * ((SUM(z.vyrobeno_ks) - SUM(z.nok_ks)) / NULLIF(SUM(z.vyrobeno_ks), 0))
-            , 0) * 100
-        , 2) AS avg_oee,
+        ROUND(COALESCE($oeeSqlExpr, 0), 2) AS avg_oee,
         CASE WHEN SUM(z.vyrobeno_ks) > 0 THEN (SUM(z.nok_ks) / SUM(z.vyrobeno_ks)) * 100 ELSE NULL END AS nok_rate,
         CASE WHEN SUM(z.vyrobeno_ks) > 0 THEN (SUM(z.vyrobeno_dobre_ks) / SUM(z.vyrobeno_ks)) * 100 ELSE NULL END AS good_rate
     FROM zapis_pracovnici zp

@@ -10,17 +10,46 @@ $isValidSelectedDate = is_string($selectedDate)
     && strtotime($selectedDate) !== false;
 $reportDate = $isValidSelectedDate ? $selectedDate : date('Y-m-d', strtotime('-1 day'));
 $downtimeJoin = "LEFT JOIN (
-    SELECT zapis_id, SUM(minuty) AS dt_total
+    SELECT zapis_id,
+        SUM(CASE WHEN kategorie='plan' THEN minuty ELSE 0 END) AS dt_plan,
+        SUM(CASE WHEN kategorie IN ('tech','vyr','kval','log','ost') THEN minuty ELSE 0 END) AS dt_neplan,
+        SUM(minuty) AS dt_total
     FROM zapisy_prostoje
     GROUP BY zapis_id
 ) zp ON zp.zapis_id=z.id";
-$stat = db_row("SELECT COUNT(*) cnt, SUM(vyrobeno_ks) vyr, SUM(nok_ks) nok,
-    ROUND(
-        COALESCE(
-            (SUM(z.cisty_cas_min) / NULLIF(SUM(z.pracovni_doba_min), 0)) * (SUM(z.vyrobeno_ks) / NULLIF(SUM(z.norma_ks), 0)) * ((SUM(z.vyrobeno_ks) - SUM(z.nok_ks)) / NULLIF(SUM(z.vyrobeno_ks), 0))
-        , 0) * 100
-    , 1) oee_avg, SUM(COALESCE(zp.dt_total,0)) prostoj,
-    SUM(vyrobeno_dobre_ks) dobre
+
+// Pomocný SQL výraz pro vážené OEE přes více směn/záznamů
+$oeeSqlExpr = "LEAST(1.0, GREATEST(0.0,
+    -- Dostupnost (A)
+    (
+        SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0) - COALESCE(zp.dt_neplan, 0)))
+        / NULLIF(SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0))), 0)
+    )
+    *
+    -- Výkonnost (P)
+    (
+        SUM(z.vyrobeno_ks)
+        / NULLIF(SUM(
+            CASE 
+                WHEN z.cycle_time_min > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0) - COALESCE(zp.dt_neplan, 0)) / z.cycle_time_min
+                WHEN z.norma_ks > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0) - COALESCE(zp.dt_neplan, 0)) * z.norma_ks
+                ELSE 0
+            END
+        ), 0)
+    )
+    *
+    -- Kvalita (Q)
+    (
+        SUM(GREATEST(0, z.vyrobeno_ks - z.nok_ks))
+        / NULLIF(SUM(z.vyrobeno_ks), 0)
+    )
+)) * 100";
+
+// Dnešní statistiky pro TV
+$stat = db_row("SELECT COUNT(*) cnt, SUM(z.vyrobeno_ks) vyr, SUM(z.nok_ks) nok,
+    ROUND(COALESCE($oeeSqlExpr, 0), 1) oee_avg, 
+    SUM(COALESCE(zp.dt_total,0)) prostoj,
+    SUM(z.vyrobeno_dobre_ks) dobre
     FROM zapisy z
     $downtimeJoin
     WHERE z.datum=?", [$reportDate]);
@@ -30,14 +59,13 @@ $topNok = db_all("SELECT nk.kod,nk.popis,SUM(zn.pocet) total
     JOIN zapisy z ON z.id=zn.zapis_id WHERE z.datum=?
     GROUP BY nk.id ORDER BY total DESC LIMIT 5", [$reportDate]);
 
-$weekOee = db_all("SELECT datum,
-    ROUND(
-        COALESCE(
-            (SUM(cisty_cas_min) / NULLIF(SUM(pracovni_doba_min), 0)) * (SUM(vyrobeno_ks) / NULLIF(SUM(norma_ks), 0)) * ((SUM(vyrobeno_ks) - SUM(nok_ks)) / NULLIF(SUM(vyrobeno_ks), 0))
-        , 0) * 100
-    , 1) oee
-    FROM zapisy WHERE datum BETWEEN DATE_SUB(?,INTERVAL 6 DAY) AND ?
-    GROUP BY datum ORDER BY datum", [$dnes,$dnes]);
+// Týdenní trend OEE pro TV graf
+$weekOee = db_all("SELECT z.datum,
+    ROUND(COALESCE($oeeSqlExpr, 0), 1) oee
+    FROM zapisy z
+    $downtimeJoin
+    WHERE z.datum BETWEEN DATE_SUB(?,INTERVAL 6 DAY) AND ?
+    GROUP BY z.datum ORDER BY z.datum", [$dnes,$dnes]);
 
 $lastRecords = db_all("SELECT z.jmeno,z.nazev_dilu,z.smena,z.vyrobeno_ks,z.oee_procent
     FROM zapisy z WHERE z.datum=? ORDER BY z.id DESC LIMIT 8", [$reportDate]);

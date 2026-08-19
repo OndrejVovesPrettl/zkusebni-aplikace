@@ -1,39 +1,40 @@
 <?php
-// admin/nok_kody.php - NOK matrix editor (X = AFO, Y = NOK ID)
+// admin/nok_kody.php - NOK matrix editor (STABILNÍ VERZE)
+@ini_set('max_input_vars', '10000');
+
 require_once dirname(__DIR__) . '/includes/config.php';
 requireRole('superadmin');
 $pageTitle = t('nav_nok');
 $activePage = 'nok';
 ensureNokKodyMatrixSchema();
 
+$msg = null;
+
+// 1. ULOŽENÍ MATICE A TEXTŮ
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
     if (!verifyCsrfToken(post('_csrf'))) {
         http_response_code(403);
         die('CSRF');
     }
 
-    $posted = post('matrix');
-    if (!is_array($posted)) {
-        $posted = [];
-    }
-    $postedTexts = post('texts');
-    if (!is_array($postedTexts)) {
-        $postedTexts = [];
-    }
+    $matrixJson = post('matrix_json');
+    $textsJson = post('texts_json');
 
-    $afoList = db_all('SELECT DISTINCT afo FROM nok_matrix_afo ORDER BY CAST(afo AS UNSIGNED), afo');
+    $posted = is_string($matrixJson) ? (json_decode($matrixJson, true) ?: []) : [];
+    $postedTexts = is_string($textsJson) ? (json_decode($textsJson, true) ?: []) : [];
+
+    $afoList = db_all('SELECT CAST(cislo_id AS CHAR) AS afo FROM pracovisite WHERE aktivni = 1 AND cislo_id IS NOT NULL AND cislo_id > 0 ORDER BY CAST(cislo_id AS UNSIGNED), cislo_id');
     $afoKeys = array_map(static fn(array $r): string => trim((string)$r['afo']), $afoList);
 
-    $nokRows = db_all('SELECT id, popis, aktivni FROM nok_kody WHERE aktivni=1 ORDER BY id');
+    $filterActive = get('filter_active', 'active');
+    $nokRows = db_all('SELECT id, kod, popis, aktivni FROM nok_kody WHERE aktivni=1 ORDER BY id');
 
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        $pdo->exec('DELETE FROM nok_matrix_afo');
-
         $ins = $pdo->prepare(
-            'INSERT INTO nok_matrix_afo (afo, nok_kod_id, zobrazit) VALUES (?, ?, ?) '
-            . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), updated_at=NOW()'
+            'INSERT INTO nok_matrix_afo (afo, nok_kod_id, kod, popis, zobrazit) VALUES (?, ?, ?, ?, ?) '
+            . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), kod=VALUES(kod), popis=VALUES(popis), updated_at=NOW()'
         );
         $updText = $pdo->prepare('UPDATE nok_kody SET popis=? WHERE id=?');
         $updTr = $pdo->prepare(
@@ -43,33 +44,96 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
 
         foreach ($nokRows as $nok) {
             $nokId = (int)$nok['id'];
+            $nokKod = (int)($nok['kod'] ?? $nokId);
+            
             $newText = trim((string)($postedTexts[(string)$nokId] ?? $nok['popis'] ?? ''));
             if ($newText === '') {
                 $newText = (string)($nok['popis'] ?? '');
             }
+            
             $updText->execute([$newText, $nokId]);
-            $keyBase = 'nok_' . str_pad((string)$nokId, 3, '0', STR_PAD_LEFT) . '_popis';
-            $updTr->execute(['cs', $keyBase, $newText]);
+
+            $key1 = 'nok_' . str_pad((string)$nokKod, 3, '0', STR_PAD_LEFT) . '_popis';
+            $key2 = 'nok_' . (string)$nokKod . '_popis';
+            $key3 = 'nok_' . str_pad((string)$nokId, 3, '0', STR_PAD_LEFT) . '_popis';
+            
+            foreach (['cs', 'en', 'uk'] as $langCode) {
+                $updTr->execute([$langCode, $key1, $newText]);
+                $updTr->execute([$langCode, $key2, $newText]);
+                $updTr->execute([$langCode, $key3, $newText]);
+            }
 
             foreach ($afoKeys as $afo) {
                 $val = 0;
-                if (isset($posted[(string)$nokId]) && is_array($posted[(string)$nokId]) && isset($posted[(string)$nokId][$afo])) {
-                    $val = ((int)$posted[(string)$nokId][$afo] === 1) ? 1 : 0;
+                if (isset($posted[(string)$nokId]) && is_array($posted[(string)$nokId]) && !empty($posted[(string)$nokId][$afo])) {
+                    $val = 1;
                 }
-                $ins->execute([$afo, $nokId, $val]);
+                $ins->execute([$afo, $nokId, $nokKod, $newText, $val]);
             }
         }
 
         $pdo->commit();
-        redirect(APP_URL . '/admin/nok_kody.php?ok=1');
+        redirect(APP_URL . '/admin/nok_kody.php?ok=1&filter_active=' . urlencode($filterActive));
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        $msg = 'Ulozeni matice selhalo: ' . $e->getMessage();
+        $msg = 'Uložení matice selhalo: ' . $e->getMessage();
     }
 }
 
+// 2. PŘIDÁNÍ NOVÉ CHYBY
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'add_nok_kod') {
+    if (!verifyCsrfToken(post('_csrf'))) {
+        http_response_code(403);
+        die('CSRF');
+    }
+
+    $popis = trim((string)post('new_nok_popis'));
+
+    if ($popis !== '') {
+        try {
+            $nextKod = (int)db_val('SELECT COALESCE(MAX(kod), 0) + 1 FROM nok_kody');
+            
+            $stmt = db()->prepare('INSERT INTO nok_kody (kod, popis, skupina, aktivni, zobrazit_default) VALUES (?, ?, "ostatni", 1, 1)');
+            $stmt->execute([$nextKod, $popis]);
+            $newId = (int)db()->lastInsertId();
+            
+            $key1 = 'nok_' . str_pad((string)$nextKod, 3, '0', STR_PAD_LEFT) . '_popis';
+            $key2 = 'nok_' . (string)$nextKod . '_popis';
+            $key3 = 'nok_' . str_pad((string)$newId, 3, '0', STR_PAD_LEFT) . '_popis';
+            
+            $updTr = db()->prepare('INSERT INTO translations (lang_code, `key`, `value`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `value`=VALUES(`value`), updated_at=NOW()');
+            foreach (['cs', 'en', 'uk'] as $langCode) {
+                $updTr->execute([$langCode, $key1, $popis]);
+                $updTr->execute([$langCode, $key2, $popis]);
+                $updTr->execute([$langCode, $key3, $popis]);
+            }
+
+            redirect(APP_URL . '/admin/nok_kody.php?ok=1');
+        } catch (Throwable $e) {
+            $msg = 'Chyba při přidávání chyby: ' . $e->getMessage();
+        }
+    } else {
+        $msg = 'Vyplňte prosím název chyby.';
+    }
+}
+
+// 3. SKRYTÍ / ODKRYTÍ CHYBY
+if (get('action') === 'toggle_nok_aktivni' && get('id')) {
+    if (!verifyCsrfToken(get('_csrf'))) {
+        http_response_code(403);
+        die('CSRF');
+    }
+    try {
+        db()->prepare('UPDATE nok_kody SET aktivni = 1 - aktivni WHERE id=?')->execute([(int)get('id')]);
+        redirect(APP_URL . '/admin/nok_kody.php?ok=1&filter_active=' . urlencode((string)get('filter_active', 'active')));
+    } catch (Throwable $e) {
+        $msg = 'Chyba při změně stavu: ' . $e->getMessage();
+    }
+}
+
+// 4. PŘESTAVĚNÍ Z EXCELU
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'rebuild_from_excel') {
     if (!verifyCsrfToken(post('_csrf'))) {
         http_response_code(403);
@@ -90,6 +154,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'rebuild_from_ex
 
 $lang = $_SESSION['lang'] ?? 'cs';
 
+// Zpracování filtru aktivních / skrytých
+$filterActive = get('filter_active', 'active');
+$whereActive = match ($filterActive) {
+    'all' => '',
+    'inactive' => 'WHERE n.aktivni = 0',
+    default => 'WHERE n.aktivni = 1',
+};
+
+// Načtení dat chyb
 $nokRows = db_all(
     "SELECT n.id,
             n.kod,
@@ -99,42 +172,31 @@ $nokRows = db_all(
                 n.popis
             ) AS popis
      FROM nok_kody n
-     WHERE n.aktivni=1
+     $whereActive
      ORDER BY n.id",
     [$lang]
 );
 
-$afoRows = db_all('SELECT DISTINCT afo FROM nok_matrix_afo ORDER BY CAST(afo AS UNSIGNED), afo');
-$afoList = array_map(static fn(array $r): string => (string)$r['afo'], $afoRows);
+// Načtení aktivních pracovišť (sloupců)
+$afoRows = db_all('SELECT CAST(cislo_id AS CHAR) AS afo, kod_pracovisite, nazev_pracovisite, nazev_dilu, aktivni 
+                   FROM pracovisite 
+                   WHERE aktivni = 1 AND cislo_id IS NOT NULL AND cislo_id > 0 
+                   ORDER BY CAST(cislo_id AS UNSIGNED), cislo_id');
 
+$afoList = [];
 $afoWorkplaceMeta = [];
-if ($afoList !== []) {
-    $ids = [];
-    foreach ($afoList as $afo) {
-        if (preg_match('/^\d+$/', $afo)) {
-            $ids[] = (int)$afo;
-        }
-    }
-    $ids = array_values(array_unique(array_filter($ids, static fn(int $v): bool => $v > 0)));
-    if ($ids !== []) {
-        $ph = implode(',', array_fill(0, count($ids), '?'));
-        $rows = db_all(
-            'SELECT cislo_id, kod_pracovisite, nazev_pracovisite, nazev_dilu, aktivni
-             FROM pracovisite
-             WHERE cislo_id IN (' . $ph . ')',
-            $ids
-        );
-        foreach ($rows as $r) {
-            $afoWorkplaceMeta[(string)$r['cislo_id']] = [
-                'kod' => (string)($r['kod_pracovisite'] ?? ''),
-                'nazev' => (string)($r['nazev_pracovisite'] ?? ''),
-                'dil' => (string)($r['nazev_dilu'] ?? ''),
-                'aktivni' => (int)($r['aktivni'] ?? 0) === 1,
-            ];
-        }
-    }
+foreach ($afoRows as $r) {
+    $afoStr = (string)$r['afo'];
+    $afoList[] = $afoStr;
+    $afoWorkplaceMeta[$afoStr] = [
+        'kod' => (string)($r['kod_pracovisite'] ?? ''),
+        'nazev' => (string)($r['nazev_pracovisite'] ?? ''),
+        'dil' => (string)($r['nazev_dilu'] ?? ''),
+        'aktivni' => (int)($r['aktivni'] ?? 0) === 1,
+    ];
 }
 
+// Načtení stávajících vazeb z matice
 $matrixMap = [];
 if ($afoList !== [] && $nokRows !== []) {
     $vals = db_all('SELECT afo, nok_kod_id, zobrazit FROM nok_matrix_afo');
@@ -158,51 +220,58 @@ require APP_ROOT . '/includes/layout.php';
 </div>
 
 <div class="content">
-<?php if(get('ok')):?><div class="alert mb-3" style="background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:var(--success);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">✓ <?= t('saved') ?></div><?php endif;?>
-<?php if(get('rebuilt')):?><div class="alert mb-3" style="background:rgba(0,229,176,.1);border:1px solid rgba(0,229,176,.25);color:var(--accent);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">Excel import prestavel ciselnik NOK i matici AFO.</div><?php endif;?>
+<?php if(get('ok')):?><div class="alert mb-3" style="background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:var(--success);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">✓ Uloženo</div><?php endif;?>
 <?php if(isset($msg)):?><div class="alert mb-3" style="background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.25);color:var(--accent2);border-radius:8px;padding:.6rem 1rem;font-size:.82rem;white-space:pre-wrap"><?= h($msg) ?></div><?php endif;?>
 
 <div class="card-dvd mb-3 no-print">
-    <div class="card-body-dvd">
-        <form method="post" class="d-flex flex-wrap gap-2 align-items-center">
-            <input type="hidden" name="action" value="rebuild_from_excel">
-            <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
-            <button type="submit" class="btn-dvd btn-dvd-sm" onclick="return confirm('Prestavet NOK ciselnik i matici podle uploads/NOKy.xlsx?')">
-                <i class="bi bi-arrow-repeat me-1"></i>Prestavet z Excelu
+    <div class="card-body-dvd d-flex flex-wrap align-items-center justify-content-between gap-3">
+        
+        <!-- Akční tlačítka vlevo (Rebuild a Add form jsou striktně odděleny) -->
+        <div class="d-flex gap-2 align-items-center">
+            <form method="post" style="margin:0;">
+                <input type="hidden" name="action" value="rebuild_from_excel">
+                <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+                <button type="submit" class="btn-dvd btn-dvd-sm" onclick="return confirm('Prestavet NOK ciselnik i matici podle uploads/NOKy.xlsx?')">
+                    <i class="bi bi-arrow-repeat me-1"></i>Přestavět z Excelu
+                </button>
+            </form>
+            <button type="button" class="btn-dvd btn-dvd-sm" onclick="openAddNokModal()">
+                <i class="bi bi-plus-lg me-1"></i>Přidat novou chybu
             </button>
-            <span style="font-size:.78rem;color:var(--muted)">Smaze puvodni NOK logiku, nastavi ID chyby jako klic a naplni AFO matici.</span>
-        </form>
+        </div>
+
+        <!-- Filtry a hledání vpravo -->
+        <div class="d-flex gap-2">
+            <form method="get" style="margin:0">
+                <select name="filter_active" class="form-select form-select-sm" onchange="this.form.submit()" style="width:170px;font-size:.78rem">
+                    <option value="active" <?= $filterActive === 'active' ? 'selected' : '' ?>>Stav: Pouze aktivní</option>
+                    <option value="all" <?= $filterActive === 'all' ? 'selected' : '' ?>>Stav: Všechny chyby</option>
+                    <option value="inactive" <?= $filterActive === 'inactive' ? 'selected' : '' ?>>Stav: Pouze skryté</option>
+                </select>
+            </form>
+            <input type="text" id="search-afo" class="form-control form-control-sm" placeholder="Hledat proces (AFO)..." oninput="filterMatrix()" style="width:180px;font-size:.78rem">
+            <input type="text" id="search-nok" class="form-control form-control-sm" placeholder="Hledat chybu..." oninput="filterMatrix()" style="width:180px;font-size:.78rem">
+        </div>
+
     </div>
 </div>
 
-<form method="post">
+<!-- ========================================================================= -->
+<!-- HLAVNÍ FORMULÁŘ MATICE -->
+<!-- ========================================================================= -->
+<form method="post" id="matrix-form" onsubmit="return serializeMatrixBeforeSubmit()">
 <input type="hidden" name="action" value="save_matrix">
 <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
-
-<div id="nok-text-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:720px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
-        <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:.7rem;">
-            <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-pencil-square me-2" style="color:var(--accent)"></i>Upravit text chyby</h5>
-            <button type="button" onclick="closeNokTextModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;line-height:1;">&times;</button>
-        </div>
-        <div style="padding:1.1rem 1.3rem;display:grid;gap:.8rem;">
-            <div style="font-size:.8rem;color:var(--muted);">ID chyby: <span id="nok-text-modal-id" class="mono"></span></div>
-            <textarea id="nok-text-modal-input" class="form-control" rows="5" style="font-size:.9rem;line-height:1.45;"></textarea>
-        </div>
-        <div style="padding:1rem 1.3rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
-            <button type="button" onclick="closeNokTextModal()" class="btn-outline" style="padding:.42rem .95rem;font-size:.82rem;">Zrušit</button>
-            <button type="button" onclick="applyNokTextModal()" class="btn-dvd btn-dvd-sm">Použít text</button>
-        </div>
-    </div>
-</div>
+<input type="hidden" name="matrix_json" id="matrix_json" value="">
+<input type="hidden" name="texts_json" id="texts_json" value="">
 
 <div class="tbl-wrap">
-<div class="overflow-x" style="max-height:70vh;overflow:auto;border:1px solid rgba(255,255,255,.08);border-radius:10px;">
-<table class="tbl" style="min-width:1300px;border-collapse:separate;border-spacing:0;">
+<div class="overflow-x" style="max-height:70vh;overflow:auto;border:1px solid var(--border);border-radius:10px;">
+<table class="tbl" id="matrix-table" style="min-width:1300px;border-collapse:separate;border-spacing:0;">
     <thead>
         <tr>
-            <th style="position:sticky;left:0;z-index:5;background:#0f141b;min-width:90px;">ID chyby</th>
-            <th style="position:sticky;left:90px;z-index:5;background:#0f141b;min-width:320px;">Chyba</th>
+            <th style="position:sticky;left:0;z-index:5;background:var(--surface2);color:var(--text);min-width:90px;border-bottom:1px solid var(--border)">ID chyby</th>
+            <th style="position:sticky;left:90px;z-index:5;background:var(--surface2);color:var(--text);min-width:320px;border-bottom:1px solid var(--border)">Chyba</th>
             <?php foreach($afoList as $afo):
                 $meta = $afoWorkplaceMeta[$afo] ?? null;
                 $headerMain = '#' . $afo;
@@ -220,7 +289,7 @@ require APP_ROOT . '/includes/layout.php';
                     $title = implode(' | ', $parts);
                 }
             ?>
-            <th style="min-width:94px;text-align:center;line-height:1.2" title="<?= h($title) ?>">
+            <th class="afo-col" data-afo-search="<?= mb_strtolower($title, 'UTF-8') ?>" style="min-width:94px;text-align:center;line-height:1.2;background:var(--surface2);color:var(--text);border-bottom:1px solid var(--border)" title="<?= h($title) ?>">
                 <div style="font-family:var(--mono);font-size:.72rem;"> <?= h($headerMain) ?> </div>
                 <?php if ($headerSub !== ''): ?>
                 <div style="font-size:.62rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:84px;margin:0 auto;"> <?= h($headerSub) ?> </div>
@@ -232,24 +301,42 @@ require APP_ROOT . '/includes/layout.php';
     <tbody>
         <?php foreach($nokRows as $row):
             $id = (int)$row['id'];
+            $isInactive = (int)$row['aktivni'] === 0;
         ?>
-        <tr>
-            <td style="position:sticky;left:0;z-index:4;background:#121a23;font-family:var(--mono);"><?= $id ?></td>
-            <td style="position:sticky;left:90px;z-index:4;background:#121a23;white-space:normal;">
-                <input type="hidden" name="texts[<?= $id ?>]" id="nok_text_<?= $id ?>" value="<?= h($row['popis']) ?>">
-                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.6rem;min-width:280px;">
-                    <div id="nok_text_preview_<?= $id ?>" style="font-size:.82rem;line-height:1.35;white-space:normal;flex:1 1 auto;"><?= h($row['popis']) ?></div>
-                    <button type="button" class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;white-space:nowrap;flex:0 0 auto;" onclick="openNokTextModal(<?= $id ?>)" title="Upravit text chyby" aria-label="Upravit text chyby">
-                        <i class="bi bi-pencil"></i>
-                    </button>
+        <tr class="nok-row <?= $isInactive ? 'opacity-50' : '' ?>" data-nok-search="<?= mb_strtolower($id . ' ' . $row['popis'], 'UTF-8') ?>">
+            <td style="position:sticky;left:0;z-index:4;background:var(--surface2);color:var(--text);font-family:var(--mono);border-bottom:1px solid var(--border)"><?= $id ?></td>
+            <td style="position:sticky;left:90px;z-index:4;background:var(--surface2);color:var(--text);white-space:normal;border-bottom:1px solid var(--border)">
+                <input type="hidden" class="nok-text-hidden" data-id="<?= $id ?>" id="nok_text_<?= $id ?>" value="<?= h($row['popis']) ?>">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-width:280px;">
+                    <div id="nok_text_preview_<?= $id ?>" style="font-size:.82rem;line-height:1.35;white-space:normal;flex:1 1 auto;color:var(--text)"><?= h($row['popis']) ?></div>
+                    <div style="display:flex;align-items:center;gap:.3rem;flex:0 0 auto;">
+                        <button type="button" class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;" onclick="openNokTextModal(<?= $id ?>)" title="Upravit text chyby">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        
+                        <?php if (!$isInactive): ?>
+                            <a href="?action=toggle_nok_aktivni&id=<?= $id ?>&filter_active=<?= urlencode($filterActive) ?>&_csrf=<?= h(generateCsrfToken()) ?>" 
+                               class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;color:var(--warn);" 
+                               onclick="return confirm('Opravdu chcete tuto chybu deaktivovat a skrýt?')" 
+                               title="Skrýt / Deaktivovat chybu">
+                                <i class="bi bi-eye-slash"></i>
+                            </a>
+                        <?php else: ?>
+                            <a href="?action=toggle_nok_aktivni&id=<?= $id ?>&filter_active=<?= urlencode($filterActive) ?>&_csrf=<?= h(generateCsrfToken()) ?>" 
+                               class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;color:var(--accent);" 
+                               onclick="return confirm('Opravdu chcete tuto chybu znovu aktivovat?')" 
+                               title="Znovu aktivovat / Odkrýt chybu">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </td>
             <?php foreach($afoList as $afo):
                 $v = (int)($matrixMap[$id][$afo] ?? 0);
             ?>
-            <td style="text-align:center;">
-                <input type="hidden" name="matrix[<?= $id ?>][<?= h($afo) ?>]" value="0">
-                <input type="checkbox" value="1" name="matrix[<?= $id ?>][<?= h($afo) ?>]" <?= $v===1?'checked':'' ?>>
+            <td class="afo-col-cell" style="text-align:center;border-bottom:1px solid var(--border)">
+                <input type="checkbox" value="1" class="matrix-cb" data-nok="<?= $id ?>" data-afo="<?= h($afo) ?>" <?= $v===1?'checked':'' ?>>
             </td>
             <?php endforeach; ?>
         </tr>
@@ -258,50 +345,135 @@ require APP_ROOT . '/includes/layout.php';
 </table>
 </div>
 <div class="tbl-footer d-flex justify-content-between align-items-center">
-    <span><?= count($nokRows) ?> NOK ID, <?= count($afoList) ?> AFO sloupcu</span>
-    <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-save me-1"></i><?= t('save') ?></button>
+    <span><?= count($nokRows) ?> zobrazených chyb</span>
+    <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-save me-1"></i>Uložit změny v matici</button>
 </div>
 </div>
 </form>
+
+<!-- ========================================================================= -->
+<!-- MODAL PRO ÚPRAVU TEXTU CHYBY (Není obalen formem) -->
+<!-- ========================================================================= -->
+<div id="nok-text-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:720px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
+        <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-pencil-square me-2" style="color:var(--accent)"></i>Upravit text chyby</h5>
+            <button type="button" onclick="closeNokTextModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;">&times;</button>
+        </div>
+        <div style="padding:1.1rem 1.3rem;display:grid;gap:.8rem;">
+            <div style="font-size:.8rem;color:var(--muted);">ID chyby: <span id="nok-text-modal-id" class="mono"></span></div>
+            <textarea id="nok-text-modal-input" class="form-control" rows="5" style="font-size:.9rem;line-height:1.45;"></textarea>
+        </div>
+        <div style="padding:1rem 1.3rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
+            <button type="button" onclick="closeNokTextModal()" class="btn-outline" style="padding:.42rem .95rem;font-size:.82rem;">Zrušit</button>
+            <button type="button" onclick="applyNokTextModal()" class="btn-dvd btn-dvd-sm">Potvrdit text</button>
+        </div>
+    </div>
 </div>
+
+<!-- ========================================================================= -->
+<!-- MODAL PRO PŘIDÁNÍ NOVÉ CHYBY (Samostatný form) -->
+<!-- ========================================================================= -->
+<div id="add-nok-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:500px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
+        <form method="post">
+            <input type="hidden" name="action" value="add_nok_kod">
+            <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+            
+            <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+                <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-plus-circle me-2" style="color:var(--accent)"></i>Přidat novou chybu</h5>
+                <button type="button" onclick="closeAddNokModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;">&times;</button>
+            </div>
+            <div style="padding:1.1rem 1.3rem;">
+                <label class="form-label-dvd" for="new_nok_popis">Název chyby <span class="req">*</span></label>
+                <input type="text" name="new_nok_popis" id="new_nok_popis" class="form-control" placeholder="např. Poškozená izolace" required autocomplete="off">
+            </div>
+            <div style="padding:1rem 1.3rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
+                <button type="button" onclick="closeAddNokModal()" class="btn-outline" style="padding:.42rem .95rem;font-size:.82rem;">Zrušit</button>
+                <button type="submit" class="btn-dvd btn-dvd-sm">Vytvořit chybu</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+</div> <!-- /.content -->
+
 <script>
 let activeNokTextId = null;
 
+// Modal pro novou chybu
+function openAddNokModal() {
+    document.getElementById('add-nok-modal').style.display = 'flex';
+    document.getElementById('new_nok_popis').focus();
+}
+function closeAddNokModal() {
+    document.getElementById('add-nok-modal').style.display = 'none';
+}
+
+// Modal pro úpravu existující chyby
 function openNokTextModal(id) {
     const hidden = document.getElementById('nok_text_' + id);
-    const modal = document.getElementById('nok-text-modal');
-    const input = document.getElementById('nok-text-modal-input');
-    const idLabel = document.getElementById('nok-text-modal-id');
-    if (!hidden || !modal || !input || !idLabel) return;
     activeNokTextId = String(id);
-    idLabel.textContent = String(id);
-    input.value = hidden.value || '';
-    modal.style.display = 'flex';
-    input.focus();
-    input.select();
+    document.getElementById('nok-text-modal-id').textContent = String(id);
+    document.getElementById('nok-text-modal-input').value = hidden.value || '';
+    document.getElementById('nok-text-modal').style.display = 'flex';
+    document.getElementById('nok-text-modal-input').focus();
 }
-
 function closeNokTextModal() {
-    const modal = document.getElementById('nok-text-modal');
-    if (modal) modal.style.display = 'none';
+    document.getElementById('nok-text-modal').style.display = 'none';
     activeNokTextId = null;
 }
-
 function applyNokTextModal() {
     if (!activeNokTextId) return;
-    const hidden = document.getElementById('nok_text_' + activeNokTextId);
-    const preview = document.getElementById('nok_text_preview_' + activeNokTextId);
-    const input = document.getElementById('nok-text-modal-input');
-    if (!hidden || !preview || !input) return;
-    hidden.value = input.value;
-    preview.textContent = input.value;
+    const inputVal = document.getElementById('nok-text-modal-input').value;
+    document.getElementById('nok_text_' + activeNokTextId).value = inputVal;
+    document.getElementById('nok_text_preview_' + activeNokTextId).textContent = inputVal;
     closeNokTextModal();
 }
 
-document.getElementById('nok-text-modal')?.addEventListener('click', function(event) {
-    if (event.target === this) {
-        closeNokTextModal();
-    }
-});
+// Odeslání JSON matice
+function serializeMatrixBeforeSubmit() {
+    const matrix = {};
+    const texts = {};
+
+    document.querySelectorAll('.nok-text-hidden').forEach(el => {
+        const id = el.getAttribute('data-id');
+        if (id) texts[id] = el.value || '';
+    });
+
+    document.querySelectorAll('.matrix-cb:checked').forEach(cb => {
+        const nokId = cb.getAttribute('data-nok');
+        const afo = cb.getAttribute('data-afo');
+        if (nokId && afo) {
+            if (!matrix[nokId]) matrix[nokId] = {};
+            matrix[nokId][afo] = 1;
+        }
+    });
+
+    document.getElementById('matrix_json').value = JSON.stringify(matrix);
+    document.getElementById('texts_json').value = JSON.stringify(texts);
+    return true;
+}
+
+// Hledání v matici
+function filterMatrix() {
+    const qAfo = (document.getElementById('search-afo')?.value || '').toLowerCase().trim();
+    const qNok = (document.getElementById('search-nok')?.value || '').toLowerCase().trim();
+
+    document.querySelectorAll('.nok-row').forEach(tr => {
+        const searchStr = tr.getAttribute('data-nok-search') || '';
+        tr.style.display = (!qNok || searchStr.includes(qNok)) ? '' : 'none';
+    });
+
+    document.querySelectorAll('.afo-col').forEach((th, index) => {
+        const searchStr = th.getAttribute('data-afo-search') || '';
+        const visible = !qAfo || searchStr.includes(qAfo);
+        th.style.display = visible ? '' : 'none';
+
+        document.querySelectorAll(`.nok-row td.afo-col-cell:nth-child(${index + 3})`).forEach(td => {
+            td.style.display = visible ? '' : 'none';
+        });
+    });
+}
 </script>
 <?php require APP_ROOT . '/includes/layout_end.php'; ?>

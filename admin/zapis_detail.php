@@ -174,14 +174,22 @@ $positionSummary = $workers
     <div class="card-header-dvd"><span class="s-num">03</span><span class="s-title"><?= t('title_production_oee') ?></span></div>
     <div class="card-body-dvd">
     <div class="row g-2 mb-3" style="font-size:.82rem">
-        <?php $vf = [
+        <?php 
+        $vf = [
             [t('label_produced_total'),number_format((int)$z['vyrobeno_ks']).' ks'],
             [t('label_nok_pieces'), number_format((int)$z['nok_ks']).' ks'],
-            [t('label_to_assess'), number_format((int)$z['k_posouzeni']).' ks'],
-            [t('label_produced_ok'), number_format((int)$z['vyrobeno_dobre_ks']).' ks'],
-            [t('label_standard_pieces'), $z['norma_ks'] ? number_format($z['norma_ks'],4) : '—'],
-            [t('label_cycle_time'), $z['cycle_time_min'] ? number_format($z['cycle_time_min'],4).' min' : '—'],
-        ]; foreach ($vf as [$l,$v]): ?>
+        ];
+        if ((int)$z['k_posouzeni'] > 0) {
+            $vf[] = [t('label_to_assess'), number_format((int)$z['k_posouzeni']).' ks'];
+        }
+        $vf[] = [t('label_produced_ok'), number_format((int)$z['vyrobeno_dobre_ks']).' ks'];
+        $vf[] = [t('tech_short') ?? 'Tech', number_format((int)$z['tech']).' ks'];
+        $vf[] = [t('blok_short') ?? 'Blok', number_format((int)$z['blok']).' ks'];
+        $vf[] = [t('tnz_short') ?? 'TNZ', number_format((int)$z['tnz']).' ks'];
+        $vf[] = [t('label_standard_pieces'), $z['norma_ks'] ? number_format($z['norma_ks'],4) : '—'];
+        $vf[] = [t('label_cycle_time'), $z['cycle_time_min'] ? number_format($z['cycle_time_min'],4).' min' : '—'];
+
+        foreach ($vf as [$l,$v]): ?>
         <div class="col-6"><div class="form-label-dvd"><?= $l ?></div>
             <div class="calc-display" style="min-height:30px;font-size:.78rem"><?= $v ?></div></div>
         <?php endforeach; ?>

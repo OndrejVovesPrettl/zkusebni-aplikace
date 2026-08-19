@@ -1,4 +1,4 @@
-# DVD Sledování výroby – Uživatelský manuál (v5.3)
+# DVD Sledování výroby – Uživatelský manuál (v5.3.3)
 
 ## Obsah
 1. [Přehled aplikace](#1-přehled-aplikace)
@@ -15,10 +15,11 @@
 12. [Týdenní výroba](#12-týdenní-výroba)
 13. [TV Mode](#13-tv-mode)
 14. [Traceability2](#14-traceability2)
-15. [Správa uživatelů a CSV import](#15-správa-uživatelů-a-csv-import)
-16. [Deploy release do produkce](#16-deploy-release-do-produkce)
-17. [Uživatelský manuál v aplikaci](#17-uživatelský-manuál-v-aplikaci)
-18. [FAQ](#18-faq)
+15. [Číselník směn (Správa -> DVD)](#15-číselník-směn-správa---dvd)
+16. [Správa uživatelů a CSV import](#16-správa-uživatelů-a-csv-import)
+17. [Deploy release do produkce](#17-deploy-release-do-produkce)
+18. [Uživatelský manuál v aplikaci](#18-uživatelský-manuál-v-aplikaci)
+19. [FAQ](#19-faq)
 
 ---
 
@@ -674,7 +675,29 @@ Data se automaticky synchronizují každých **30 minut** z produkčního server
 
 ---
 
-## 15. Správa uživatelů a CSV import
+## 15. Číselník směn (Správa -> DVD)
+
+Od verze `v5.3.1` je směna spravována přes databázový číselník.
+
+### Kde jej najdu
+
+Navigace: **Správa -> DVD -> Směny** (`admin/smeny.php`)
+
+### Co stránka umí
+
+- Přidat novou směnu (kód, název, čas od/do, pracovní doba, pauza, pořadí)
+- Upravit existující směnu
+- Aktivovat/deaktivovat směnu
+- Smazat směnu
+
+### Jak se změny projeví
+
+- Hlavní formulář (`index.php`) načítá směny přímo z DB.
+- Po uložení změn v číselníku se výběr směn aktualizuje bez potřeby zásahu do kódu.
+
+---
+
+## 16. Správa uživatelů a CSV import
 
 Tato část je dostupná pouze pro roli Superadmin.
 
@@ -720,7 +743,7 @@ Po importu se zobrazí souhrn: importováno / přeskočeno.
 
 ---
 
-## 16. Deploy release do produkce
+## 17. Deploy release do produkce
 
 Od verze `v5.1.1` je release deploy součástí stránky `Správa -> Skripty`.
 
@@ -749,7 +772,7 @@ Od verze `v5.1.1` je release deploy součástí stránky `Správa -> Skripty`.
 
 ---
 
-## 17. Uživatelský manuál v aplikaci
+## 18. Uživatelský manuál v aplikaci
 
 Od verze v5.2.4 je v levém menu položka **Uživatelský manuál** (`admin/manual.php`).
 
@@ -773,7 +796,7 @@ Při tisku stránky je sekce „Obsah manuálu" automaticky skryta; obsah jednot
 
 ---
 
-## 18. FAQ
+## 19. FAQ
 
 ### Jak se přihlásím?
 

@@ -1,5 +1,7 @@
+--- START OF FILE Paste August 18, 2026 - 4:53PM ---
+
 <?php
-// admin/zapis_edit.php – Editace existujícího záznamu
+// admin/zapis_edit.php – Editace existujícího záznamu (Sjednoceno s index.php)
 require_once dirname(__DIR__) . '/includes/config.php';
 requireAnyRole(['superadmin', 'admin', 'write']);
 
@@ -14,7 +16,7 @@ if (!$id) redirect(APP_URL . '/admin/zaznamy.php');
 $z = db_row('SELECT * FROM zapisy WHERE id=?', [$id]);
 if (!$z) { http_response_code(404); die(t('record_not_found')); }
 
-$workers      = db_all('SELECT zp.*, p.interni_id FROM zapis_pracovnici zp LEFT JOIN pracovnici p ON p.id=zp.pracovnik_id WHERE zp.zapis_id=? ORDER BY zp.poradi, zp.id', [$id]);
+$workers      = db_all('SELECT zp.*, p.interni_id, p.jmeno, p.smennost FROM zapis_pracovnici zp LEFT JOIN pracovnici p ON p.id=zp.pracovnik_id WHERE zp.zapis_id=? ORDER BY zp.poradi, zp.id', [$id]);
 $prostoje     = db_all("SELECT id, typ_kod, cas_od, cas_do, minuty, pocet, poznamka
     FROM zapisy_prostoje
     WHERE zapis_id=? AND UPPER(typ_kod) NOT IN ('TECH_SUM','PLAN_SUM','VYR_SUM','KVAL_SUM','LOG_SUM','OST_SUM')
@@ -38,137 +40,76 @@ $prostSummary = db_row("SELECT
     FROM zapisy_prostoje
     WHERE zapis_id=?", [$id]) ?: [];
 
-$prostCodeMap = array_fill_keys([
-    'P1','P2','P3','P4','P5','P6','P7','P8','P9','P10',
-    'O1','L1','L2','V1','V2','V3','Q1','Q2','Q3','Q4'
-], 0);
-foreach ($prostRows as $row) {
-    $code = strtoupper((string)($row['typ_kod'] ?? ''));
-    if (!array_key_exists($code, $prostCodeMap)) {
-        continue;
-    }
-    $prostCodeMap[$code] = (int)($row['minuty'] ?? 0);
-}
-
-$formDowntimeByCode = [
-    'p1' => $prostCodeMap['P1'] ?? 0,
-    'p2' => $prostCodeMap['P2'] ?? 0,
-    'p3' => $prostCodeMap['P3'] ?? 0,
-    'p4' => $prostCodeMap['P4'] ?? 0,
-    'p5' => $prostCodeMap['P5'] ?? 0,
-    'p6' => $prostCodeMap['P6'] ?? 0,
-    'p7' => $prostCodeMap['P7'] ?? 0,
-    'p8' => $prostCodeMap['P8'] ?? 0,
-    'p9' => $prostCodeMap['P9'] ?? 0,
-    'p10' => $prostCodeMap['P10'] ?? 0,
-    'o1' => $prostCodeMap['O1'] ?? 0,
-    'l1' => $prostCodeMap['L1'] ?? 0,
-    'l2' => $prostCodeMap['L2'] ?? 0,
-    'v1' => $prostCodeMap['V1'] ?? 0,
-    'v2' => $prostCodeMap['V2'] ?? 0,
-    'v3' => $prostCodeMap['V3'] ?? 0,
-    'q1' => $prostCodeMap['Q1'] ?? 0,
-    'q2' => $prostCodeMap['Q2'] ?? 0,
-    'q3' => $prostCodeMap['Q3'] ?? 0,
-    'q4' => $prostCodeMap['Q4'] ?? 0,
-];
-
-$formDowntimeSummary = [
-    'tech' => (int)($prostSummary['tech'] ?? 0),
-    'vyr' => (int)($prostSummary['vyr'] ?? 0),
-    'kval' => (int)($prostSummary['kval'] ?? 0),
-    'log' => (int)($prostSummary['log'] ?? 0),
-    'ost' => (int)($prostSummary['ost'] ?? 0),
-    'plan' => (int)($prostSummary['plan'] ?? 0),
-    'nepl' => (int)($prostSummary['nepl'] ?? 0),
-    'celkem' => (int)($prostSummary['celkem'] ?? 0),
-];
-
 $nokMap = [];
 foreach ($nokZaznamy as $n) $nokMap[(int)$n['nok_kod_id']] = (int)$n['pocet'];
+
 $hodinyMap = [];
 foreach ($hodiny as $h) $hodinyMap[$h['hodina_od']] = $h;
 
+// Získání sdílených dat (stejné jako v index.php)
 $pracovisteList = getPracovisteList();
 $pracovniciList = getPracovniciList();
-$nokKody        = getNokKodyGrouped();
+$nokKodyFlat    = getNokKodyGrouped();
+$nokAfoMap      = getNokAfoVisibilityMap();
 $prostojTypy    = getProstojTypyList();
-
-// Filter out NOK code 134 (same as index.php)
-$nokKody = array_filter($nokKody, static function(array $nok): bool {
-    return (int)($nok['id'] ?? 0) !== 134;
-});
-$nokKody = array_values($nokKody);
-
-// Get AFO visibility map for JavaScript filtering
-$nokAfoVisibilityMap = getNokAfoVisibilityMap();
+$smenyList      = getSmenyList();
+$prestavkyList  = getPrestavkyList();
 $prostojTypyMap = array_column($prostojTypy, 'popis', 'kod');
 
-if (empty($prostoje)) {
-    $fallbackTechCode = '';
-    foreach (array_keys($prostojTypyMap) as $prostojKod) {
-        $prostojKod = strtoupper((string)$prostojKod);
-        if ($prostojKod === '' || isZapisyDowntimeSummaryCode($prostojKod)) {
-            continue;
-        }
-        if (preg_match('/^[PVQLO]/', $prostojKod)) {
-            continue;
-        }
-        $fallbackTechCode = $prostojKod;
-        break;
-    }
-
-    $legacyFallbackRows = [
-        ['typ_kod' => 'P1', 'minuty' => (int)($formDowntimeSummary['plan'] ?? 0)],
-        ['typ_kod' => $fallbackTechCode, 'minuty' => (int)($formDowntimeSummary['tech'] ?? 0)],
-        ['typ_kod' => 'V1', 'minuty' => (int)($formDowntimeSummary['vyr'] ?? 0)],
-        ['typ_kod' => 'Q1', 'minuty' => (int)($formDowntimeSummary['kval'] ?? 0)],
-        ['typ_kod' => 'L1', 'minuty' => (int)($formDowntimeSummary['log'] ?? 0)],
-        ['typ_kod' => 'O1', 'minuty' => (int)($formDowntimeSummary['ost'] ?? 0)],
-    ];
-
-    $prostoje = [];
-    foreach ($legacyFallbackRows as $fallbackRow) {
-        $typKod = strtoupper(trim((string)($fallbackRow['typ_kod'] ?? '')));
-        $minuty = (int)($fallbackRow['minuty'] ?? 0);
-        if ($typKod === '' || $minuty <= 0) {
-            continue;
-        }
-        if (!isset($prostojTypyMap[$typKod])) {
-            continue;
-        }
-        $prostoje[] = [
-            'id' => null,
-            'typ_kod' => $typKod,
-            'cas_od' => null,
-            'cas_do' => null,
-            'minuty' => $minuty,
-            'pocet' => 1,
-            'poznamka' => null,
-        ];
-    }
-}
-
-$pCodes = [
-    'p1'=>t('p1_desc'),'p2'=>t('p2_desc'),
-    'p3'=>t('p3_desc'),'p4'=>t('p4_desc'),
-    'p5'=>t('p5_desc'),'p6'=>t('p6_desc'),'p7'=>t('p7_desc'),
-    'p8'=>t('p8_desc'),'p9'=>t('p9_desc'),'p10'=>t('p10_desc'),
+// Prepare NOK groups for template (converted to simple list without grouping)
+$nokTemplateGroups = [
+    [
+        'key' => 'all',
+        'label' => '',
+        'items' => array_map(static function (array $nok): array {
+            return [
+                'id' => (int)$nok['id'],
+                'kod' => (string)$nok['kod'],
+                'popis' => (string)$nok['popis'],
+            ];
+        }, array_values(array_filter($nokKodyFlat, static function (array $nok): bool {
+            return (int)($nok['id'] ?? 0) !== 134;
+        })))
+    ]
 ];
-$lCodes = ['l1'=>t('l1_desc'),'l2'=>t('l2_desc')];
-$vCodes = ['v1'=>t('v1_desc'),'v2'=>t('v2_desc'),'v3'=>t('v3_desc')];
-$qCodes = ['q1'=>t('q1_desc'),'q2'=>t('q2_desc'),'q3'=>t('q3_desc'),'q4'=>t('q4_desc')];
 
 $workerPositionLabels = [t('pos_operator'), t('pos_serizovac'), t('pos_mistr'), t('pos_jina')];
-$workerSelectOptions = '<option value="">' . h(t('select_worker')) . '</option>';
-foreach ($pracovniciList as $pw) {
-    $workerLabel = h($pw['jmeno']) . ($pw['smennost'] ? ' (' . h($pw['smennost']) . ')' : '');
-    $workerSelectOptions .= '<option value="' . (int)$pw['id'] . '" data-jmeno="' . h($pw['jmeno']) . '">' . $workerLabel . '</option>';
-}
 $workerPositionOptions = '';
 foreach ($workerPositionLabels as $positionLabel) {
     $workerPositionOptions .= '<option value="' . h($positionLabel) . '">' . h($positionLabel) . '</option>';
 }
+
+$pracovniciSuggest = array_map(static function (array $pw): array {
+    $label = (string)$pw['jmeno'] . ($pw['smennost'] ? ' (' . (string)$pw['smennost'] . ')' : '');
+    return [
+        'id' => (int)$pw['id'],
+        'label' => $label,
+        'jmeno' => (string)$pw['jmeno'],
+        'smennost' => (string)($pw['smennost'] ?? ''),
+        'search' => mb_strtolower(implode(' ', [(string)$pw['jmeno'], (string)($pw['smennost'] ?? ''), $label]), 'UTF-8'),
+    ];
+}, $pracovniciList);
+
+$pracovisteSuggest = array_map(static function (array $pw): array {
+    $label = '[' . $pw['cislo_id'] . '] ' . $pw['zakaznik'] . ' – ' . $pw['nazev_dilu'] . ' (' . $pw['kod_pracovisite'] . ')';
+    return [
+        'id' => (int)$pw['id'],
+        'cisloId' => (int)($pw['cislo_id'] ?? 0),
+        'label' => $label,
+        'zakaznik' => (string)($pw['zakaznik'] ?? ''),
+        'projekt' => (string)($pw['projekt'] ?? ''),
+        'verze' => (string)($pw['verze'] ?? ''),
+        'afo' => (string)($pw['kod_pracovisite'] ?? ''),
+        'nazev' => (string)($pw['nazev_pracovisite'] ?? ''),
+        'dil' => (string)($pw['nazev_dilu'] ?? ''),
+        'sap' => (string)($pw['sap_cislo'] ?? ''),
+        'ns' => (string)($pw['nakladove_stredisko'] ?? ''),
+        'norma' => $pw['norma_ks_min'] ?? '',
+        'cycle' => $pw['cyklus_min'] ?? '',
+        'typ' => trim((string)($pw['typ'] ?? '')),
+        'search' => mb_strtolower(implode(' ', [$label, (string)($pw['zakaznik'] ?? ''), (string)($pw['projekt'] ?? ''), (string)($pw['verze'] ?? ''), (string)($pw['kod_pracovisite'] ?? ''), (string)($pw['nazev_pracovisite'] ?? ''), (string)($pw['nazev_dilu'] ?? ''), (string)($pw['sap_cislo'] ?? '')]), 'UTF-8'),
+    ];
+}, $pracovisteList);
 
 $jsLang = [
     'saved'                => t('saved'),
@@ -185,6 +126,12 @@ $jsLang = [
     'oee_status_below'     => t('oee_status_below'),
     'oee_status_far_below' => t('oee_status_far_below'),
     'error_required_fields'=> t('error_required_fields'),
+    'nok_mismatch'         => t('nok_mismatch'),
+    'nok_mismatch_auto_fill' => t('nok_mismatch_auto_fill'),
+    'nok_mismatch_manual'  => t('nok_mismatch_manual'),
+    'nok_mismatch_exceeded'=> t('nok_mismatch_exceeded'),
+    'nok_mismatch_missing_ostatni' => t('nok_mismatch_missing_ostatni'),
+    'sec_nok_empty_for_afo'=> t('sec_nok_empty_for_afo'),
 ];
 
 $pageTitle  = t('edit') . ' #' . $id;
@@ -196,18 +143,34 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
 <?php require APP_ROOT . '/includes/layout.php'; ?>
 
 <div class="topbar">
-    <div class="d-flex align-items-center gap-3">
-        <button class="btn-icon d-md-none" id="sidebar-toggle"><i class="bi bi-list fs-5"></i></button>
+    <div class="d-flex align-items-center gap-3 topbar-mainline" style="flex:1">
+        <button class="btn-icon d-md-none" id="sidebar-toggle" style="margin-right:auto"><i class="bi bi-list fs-5"></i></button>
         <a href="zapis_detail.php?id=<?= $id ?>" class="btn-icon" title="<?= t('back') ?>"><i class="bi bi-arrow-left"></i></a>
         <span class="topbar-title"><?= t('edit') ?> <span class="mono text-accent">#<?= $id ?></span></span>
-        <span class="badge-<?= $z['typ'] ?>"><?= strtoupper($z['typ']) ?></span>
+        <span id="typ-badge" class="badge-<?= $z['typ'] ?>"><?= strtoupper($z['typ']) ?></span>
+        <span class="topbar-meta" id="header-meta"></span>
     </div>
-    <div class="d-flex gap-2 align-items-center no-print">
+    <div class="d-flex gap-2 align-items-center no-print" style="justify-content:flex-end;flex-wrap:wrap">
         <a href="logout.php" class="btn-outline" style="padding:.38rem .9rem;font-size:.78rem;white-space:nowrap"><i class="bi bi-box-arrow-left me-1"></i><?= t('nav_logout') ?></a>
     </div>
 </div>
 
 <div class="content">
+
+<?php if (isSuperAdmin()): ?>
+<div id="nok-afo-debug" class="card-dvd mb-3 no-print" style="display:none;">
+    <div class="card-header-dvd">
+        <span class="s-num">DBG</span>
+        <span class="s-title"><i class="bi bi-bug me-2" style="color:var(--warn)"></i>NOK/AFO debug</span>
+    </div>
+    <div class="card-body-dvd" style="font-size:.78rem;color:var(--muted);display:grid;gap:.35rem;">
+        <div><strong>AFO text:</strong> <span id="dbg-afo-text">—</span></div>
+        <div><strong>AFO tokeny:</strong> <span id="dbg-afo-tokens">—</span></div>
+        <div><strong>Mapa nalezena:</strong> <span id="dbg-afo-map">—</span></div>
+        <div><strong>Viditelné NOK:</strong> <span id="dbg-afo-visible">—</span></div>
+    </div>
+</div>
+<?php endif; ?>
 
 <form id="edit-form" novalidate>
 <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
@@ -229,7 +192,7 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
 </div>
 
 <!-- ── 01 Identifikace ── -->
-<div class="card-dvd mb-3">
+<div class="card-dvd mb-3" id="sec-ident">
     <div class="card-header-dvd" data-collapsible>
         <span class="s-num">01</span>
         <span class="s-title"><i class="bi bi-card-text me-2" style="color:var(--accent)"></i><?= t('sec_ident') ?></span>
@@ -239,25 +202,16 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
     <div class="row g-3">
         <div class="col-12">
             <label class="form-label-dvd"><?= t('pracovisite') ?> <span class="req">*</span></label>
-            <select name="pracovisite_id" id="pracovisite_id" class="form-select" required onchange="loadPracovisteData(this.value)">
-                <option value="">— <?= t('pracovisite') ?> —</option>
-                <?php foreach($pracovisteList as $pw): ?>
-                <option value="<?= $pw['id'] ?>"
-                    <?= $z['pracovisite_id']==$pw['id']?'selected':'' ?>
-                    data-zakaznik="<?= h($pw['zakaznik']) ?>"
-                    data-projekt="<?= h($pw['projekt']) ?>"
-                    data-verze="<?= h($pw['verze']) ?>"
-                    data-afo="<?= h($pw['kod_pracovisite']) ?>"
-                    data-nazev="<?= h($pw['nazev_pracovisite']) ?>"
-                    data-dil="<?= h($pw['nazev_dilu']) ?>"
-                    data-sap="<?= h($pw['sap_cislo']) ?>"
-                    data-ns="<?= h($pw['nakladove_stredisko']??'') ?>"
-                    data-norma="<?= $pw['norma_ks_min']??'' ?>"
-                    data-cycle="<?= $pw['cyklus_min']??'' ?>">
-                    [<?= $pw['cislo_id'] ?>] <?= h($pw['zakaznik'].' – '.$pw['nazev_dilu'].' ('.$pw['kod_pracovisite'].')') ?>
-                </option>
-                <?php endforeach; ?>
-            </select>
+            <div style="position:relative">
+                <input type="text" id="pracovisite_search" class="form-control" autocomplete="off"
+                    placeholder="<?= t('pracovisite') ?>"
+                    oninput="onPracovisteInput(this.value)"
+                    onfocus="onPracovisteInput(this.value)"
+                    onkeydown="onPracovisteKeydown(event)"
+                    onblur="setTimeout(closePracovisteDropdown, 150)" required>
+                <div id="pracovisite_dropdown" style="display:none;position:absolute;z-index:1000;width:100%;max-height:260px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;box-shadow:0 4px 8px rgba(0,0,0,.3)"></div>
+            </div>
+            <input type="hidden" id="pracovisite_id" name="pracovisite_id" value="<?= $z['pracovisite_id'] ?>" required>
         </div>
         <?php foreach([
             ['zakaznik',t('zakaznik'),$z['zakaznik']??''],
@@ -292,7 +246,7 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
 </div>
 
 <!-- ── 02 Směna ── -->
-<div class="card-dvd mb-3">
+<div class="card-dvd mb-3" id="sec-smena">
     <div class="card-header-dvd" data-collapsible>
         <span class="s-num">02</span>
         <span class="s-title"><i class="bi bi-clock me-2" style="color:var(--accent3)"></i><?= t('sec_smena') ?></span>
@@ -310,9 +264,9 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
         </div>
         <div class="col-6 col-md-2">
             <label class="form-label-dvd"><?= t('smena') ?> <span class="req">*</span></label>
-            <select name="smena" id="input-smena" class="form-select" required>
-                <?php foreach(['R8','O8','N8','R12','N12'] as $s): ?>
-                <option value="<?= $s ?>" <?= $z['smena']===$s?'selected':'' ?>><?= $s ?></option>
+            <select name="smena" id="input-smena" class="form-select" required onchange="applySmenaDefaults()">
+                <?php foreach ($smenyList as $sm): ?>
+                <option value="<?= h($sm['kod']) ?>" <?= $z['smena']===$sm['kod']?'selected':'' ?>><?= h($sm['nazev']) ?></option>
                 <?php endforeach; ?>
             </select>
         </div>
@@ -379,7 +333,7 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
 </div>
 
 <!-- ── 04 Výroba ── -->
-<div class="card-dvd mb-3">
+<div class="card-dvd mb-3" id="sec-vyroba">
     <div class="card-header-dvd" data-collapsible>
         <span class="s-num">04</span>
         <span class="s-title"><i class="bi bi-boxes me-2" style="color:var(--warn)"></i><?= t('sec_vyroba') ?></span>
@@ -387,40 +341,53 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
     </div>
     <div class="card-body-dvd">
     <div class="row g-3">
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-2">
             <label class="form-label-dvd"><?= t('vyrobeno') ?> <span class="req">*</span></label>
-            <input type="number" name="vyrobeno_ks" id="vyrobeno" class="form-control" min="0"
+            <input type="number" name="vyrobeno_ks" id="vyrobeno" class="form-control" min="0" placeholder="0" 
                 value="<?= (int)$z['vyrobeno_ks'] ?>" required onchange="calcKs();calcOEE()">
         </div>
         <div class="col-6 col-md-2">
             <label class="form-label-dvd"><?= t('nok_ks') ?></label>
-            <input type="number" name="nok_ks" id="nokks" class="form-control" min="0"
+            <input type="number" name="nok_ks" id="nokks" class="form-control" min="0" placeholder="0" 
                 value="<?= (int)$z['nok_ks'] ?>" onchange="calcKs();calcOEE()">
         </div>
-        <div class="col-6 col-md-2">
-            <label class="form-label-dvd"><?= t('k_posouzeni') ?></label>
-            <input type="number" name="k_posouzeni" class="form-control" min="0"
-                value="<?= (int)$z['k_posouzeni'] ?>">
+        
+        <?php foreach(['tech'=>t('tech_short'),'blok'=>t('blok_short'),'tnz'=>t('tnz_short')] as $k=>$l): ?>
+        <div class="col-4 col-md-2">
+            <label class="form-label-dvd"><?= $l ?></label>
+            <input type="number" name="<?= $k ?>" id="<?= $k ?>" class="form-control" min="0" placeholder="0" 
+                value="<?= (int)$z[$k] ?>" onchange="calcKs();calcOEE()">
         </div>
-        <div class="col-6 col-md-2">
+        <?php endforeach; ?>
+
+        <div class="col-12 col-md-2">
             <label class="form-label-dvd"><?= t('vyrobeno_dobre') ?></label>
             <div class="calc-display text-accent" id="disp-dobre"><?= number_format((int)$z['vyrobeno_dobre_ks']) ?></div>
         </div>
-        <div class="col-6 col-md-3">
-            <div class="d-flex gap-3 pt-4">
-                <?php foreach(['tech'=>t('tech_short'),'blok'=>t('blok_short'),'tnz'=>t('tnz_short')] as $k=>$l): ?>
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" name="<?= $k ?>" id="chk-<?= $k ?>" <?= $z[$k]?'checked':'' ?>>
-                    <label class="form-check-label" for="chk-<?= $k ?>" style="font-size:.8rem"><?= $l ?></label>
-                </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
+        <input type="hidden" name="k_posouzeni" value="<?= (int)$z['k_posouzeni'] ?>">
         <div class="col-12">
             <label class="form-label-dvd"><?= t('poznamky') ?></label>
             <textarea name="poznamky" class="form-control" rows="2" placeholder="<?= t('notes_placeholder') ?>"><?= h($z['poznamky']??'') ?></textarea>
         </div>
     </div>
+    </div>
+</div>
+
+<!-- ── 06 NOK záznamy ── -->
+<div class="card-dvd mb-3" id="sec-nok">
+    <div class="card-header-dvd" data-collapsible>
+        <span class="s-num">06</span>
+        <span class="s-title"><i class="bi bi-x-octagon me-2" style="color:var(--accent2)"></i><?= t('sec_nok') ?>
+            <span id="nok-badge" style="display:none;background:rgba(255,107,53,.18);color:var(--accent2);font-family:var(--mono);font-size:.62rem;border-radius:3px;padding:.1rem .4rem;margin-left:.5rem"></span>
+        </span>
+        <i class="bi bi-chevron-down s-toggle"></i>
+    </div>
+    <div class="card-body-dvd">
+    <div id="nok-empty-hint" style="display:none;font-size:.78rem;color:var(--muted);margin-bottom:.6rem;">
+        <?= h(t('sec_nok_empty_for_afo')) ?>
+    </div>
+    <input type="hidden" name="nok[134]" id="nok_134" value="<?= $nokMap[134] ?? 0 ?>">
+    <div class="row g-3" id="nok-groups-container"></div>
     </div>
 </div>
 
@@ -455,33 +422,7 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
     </div>
 </div>
 
-<!-- ── 06 NOK záznamy ── -->
-<div class="card-dvd mb-3">
-    <div class="card-header-dvd" data-collapsible>
-        <span class="s-num">06</span>
-        <span class="s-title"><i class="bi bi-x-octagon me-2" style="color:var(--accent2)"></i><?= t('sec_nok') ?>
-            <span id="nok-badge" style="display:none;background:rgba(255,107,53,.18);color:var(--accent2);font-family:var(--mono);font-size:.62rem;border-radius:3px;padding:.1rem .4rem;margin-left:.5rem"></span>
-        </span>
-        <i class="bi bi-chevron-down s-toggle"></i>
-    </div>
-    <div class="card-body-dvd">
-    <div class="row g-0">
-    <?php foreach($nokKody as $nok): ?>
-    <div class="col-12 col-md-6 col-xl-4 pe-md-3 pb-3">
-        <div class="nok-item">
-            <span class="nok-code"><?= $nok['kod'] ?></span>
-            <label for="nok_<?= $nok['id'] ?>"><?= h($nok['popis']) ?></label>
-            <input type="number" name="nok[<?= $nok['id'] ?>]" id="nok_<?= $nok['id'] ?>"
-                   class="form-control nok-qty" min="0" max="9999" placeholder="0"
-                   value="<?= $nokMap[(int)$nok['id']] ?? '' ?>"
-                   onchange="updateNokBadge()">
-        </div>
-    </div>
-    <?php endforeach; ?>
-    </div>
-    </div>
-</div>
-
+<?php /*
 <!-- ── 07 Hodinové sledování ── -->
 <div class="card-dvd mb-3">
     <div class="card-header-dvd" data-collapsible>
@@ -490,34 +431,13 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
         <i class="bi bi-chevron-down s-toggle"></i>
     </div>
     <div class="card-body-dvd">
-    <div class="hourly-grid">
-    <?php foreach(['06-07','07-08','08-09','09-10','10-11','11-12','12-13','13-14','14-15','15-16','16-17','17-18','18-19','19-20','20-21','21-22','22-23','23-00','00-01','01-02','02-03','03-04','04-05','05-06'] as $slot):
-        $hd = $hodinyMap[$slot] ?? []; ?>
-    <div class="hour-card">
-        <div class="hour-label"><?= $slot ?></div>
-        <input type="hidden" name="hodiny[<?= $slot ?>][hodina_od]" value="<?= $slot ?>">
-        <div class="row g-1">
-            <div class="col-4"><div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem"><?= t('hour_from') ?></div>
-                <input type="number" name="hodiny[<?= $slot ?>][vyrobeno]" class="form-control" min="0" placeholder="ks"
-                    value="<?= isset($hd['vyrobeno'])&&$hd['vyrobeno']>0?(int)$hd['vyrobeno']:'' ?>"
-                    style="padding:.28rem .4rem;font-size:.75rem"></div>
-            <div class="col-4"><div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem"><?= t('hour_p') ?></div>
-                <input type="number" name="hodiny[<?= $slot ?>][p_minuty]" class="form-control" min="0" max="60" placeholder="0"
-                    value="<?= isset($hd['p_minuty'])&&$hd['p_minuty']>0?(int)$hd['p_minuty']:'' ?>"
-                    style="padding:.28rem .4rem;font-size:.75rem"></div>
-            <div class="col-4"><div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem"><?= t('hour_t') ?></div>
-                <input type="number" name="hodiny[<?= $slot ?>][t_minuty]" class="form-control" min="0" max="60" placeholder="0"
-                    value="<?= isset($hd['t_minuty'])&&$hd['t_minuty']>0?(int)$hd['t_minuty']:'' ?>"
-                    style="padding:.28rem .4rem;font-size:.75rem"></div>
-        </div>
-    </div>
-    <?php endforeach; ?>
-    </div>
+        <div id="hourly-container" class="hourly-grid"></div>
     </div>
 </div>
+*/ ?>
 
 <!-- ── 08 OEE Preview ── -->
-<div class="card-dvd mb-3">
+<div class="card-dvd mb-3" id="sec-oee">
     <div class="card-header-dvd" data-collapsible>
         <span class="s-num">08</span>
         <span class="s-title"><i class="bi bi-speedometer2 me-2" style="color:var(--accent)"></i><?= t('sec_oee') ?></span>
@@ -562,69 +482,337 @@ window.LANG_TEXT = <?= json_encode($jsLang) ?>;
 </div>
 
 </form>
+
+<!-- Potvrzovací Modal -->
+<div id="confirm-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:420px;width:90%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);transform:scale(1);transition:transform .2s;">
+        <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+            <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-question-circle me-2 text-accent"></i><?= t('confirm_save_title') ?></h5>
+            <button onclick="closeConfirmModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;line-height:1;">&times;</button>
+        </div>
+        <div style="padding:1.5rem;color:var(--text);font-size:.9rem;line-height:1.6;">
+            <p style="margin:0 0 .75rem 0;"><?= t('confirm_save_msg') ?></p>
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.75rem 1rem;font-size:.8rem;color:var(--muted);">
+                <i class="bi bi-info-circle me-2 text-accent"></i><?= t('confirm_save_note') ?>
+            </div>
+        </div>
+        <div style="padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
+            <button onclick="closeConfirmModal()" style="background:transparent;border:1px solid var(--border2);color:var(--text);padding:.5rem 1.25rem;border-radius:6px;font-size:.85rem;cursor:pointer;transition:all .18s;" onmouseover="this.style.borderColor='var(--text)'" onmouseout="this.style.borderColor='var(--border2)'">
+                <i class="bi bi-x-lg me-1"></i><?= t('cancel_continue') ?>
+            </button>
+            <button onclick="executeSave()" style="background:linear-gradient(135deg,var(--accent),#00c496);border:none;color:#000;padding:.5rem 1.25rem;border-radius:6px;font-size:.85rem;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:0 4px 14px rgba(0,229,176,.22);" onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 6px 22px rgba(0,229,176,.38)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 14px rgba(0,229,176,.22)'">
+                <i class="bi bi-check2 me-1"></i><?= t('save_entry') ?>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- NOK nesoulad Modal -->
+<div id="nok-mismatch-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:520px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
+        <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:.7rem;">
+            <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-exclamation-triangle me-2" style="color:var(--accent2)"></i><span id="nok-mismatch-title"></span></h5>
+            <button type="button" onclick="closeNokMismatchModal(false)" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;line-height:1;">&times;</button>
+        </div>
+        <div style="padding:1.25rem 1.3rem;color:var(--text);font-size:.9rem;line-height:1.55;">
+            <p id="nok-mismatch-body" style="margin:0 0 .65rem 0;"></p>
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.65rem .85rem;font-size:.82rem;color:var(--muted);">
+                <i class="bi bi-arrow-right-circle me-2" style="color:var(--accent)"></i>
+                <span id="nok-mismatch-fill-text"></span>
+            </div>
+        </div>
+        <div style="padding:1rem 1.3rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
+            <button type="button" onclick="closeNokMismatchModal(false)" style="background:transparent;border:1px solid var(--border2);color:var(--text);padding:.5rem 1.1rem;border-radius:6px;font-size:.85rem;cursor:pointer;transition:all .18s;">
+                <i class="bi bi-pencil-square me-1"></i><span id="nok-mismatch-no"></span>
+            </button>
+            <button type="button" onclick="closeNokMismatchModal(true)" style="background:linear-gradient(135deg,var(--accent),#00c496);border:none;color:#000;padding:.5rem 1.1rem;border-radius:6px;font-size:.85rem;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:0 4px 14px rgba(0,229,176,.22);">
+                <i class="bi bi-check2-circle me-1"></i><span id="nok-mismatch-yes"></span>
+            </button>
+        </div>
+    </div>
+</div>
+
 </div><!-- content -->
 <div id="toast-area"></div>
 
 <script>
 const APP_URL = '<?= APP_URL ?>';
 const RECORD_ID = <?= $id ?>;
-const nokAfoVisibilityMap = <?= json_encode($nokAfoVisibilityMap) ?>;
 let pwData = {};
 let techIdx = 0;
 let workerIdx = 0;
+let currentTyp = '<?= $z['typ'] ?>';
+
+const pracovisteSuggest = <?= json_encode($pracovisteSuggest, JSON_UNESCAPED_UNICODE) ?>;
+const pracovisteById = Object.fromEntries(pracovisteSuggest.map(item => [String(item.id), item]));
+const nokTemplateGroups = <?= json_encode($nokTemplateGroups, JSON_UNESCAPED_UNICODE) ?>;
+const nokAfoVisibilityMap = <?= json_encode($nokAfoMap, JSON_UNESCAPED_UNICODE) ?>;
+const nokDebugEnabled = <?= isSuperAdmin() ? 'true' : 'false' ?>;
+let activePracovisteSuggest = [...pracovisteSuggest];
 const prostojTypy = <?= json_encode(array_column($prostojTypy,'popis','kod')) ?>;
-const workerSelectOptions = <?= json_encode($workerSelectOptions) ?>;
+const pracovniciSuggest = <?= json_encode($pracovniciSuggest, JSON_UNESCAPED_UNICODE) ?>;
+const pracovniciById = Object.fromEntries(pracovniciSuggest.map(item => [String(item.id), item]));
 const workerPositionOptions = <?= json_encode($workerPositionOptions) ?>;
+const prestavkyDef = <?= json_encode($prestavkyList, JSON_UNESCAPED_UNICODE) ?>;
 const initialWorkers = <?= json_encode(array_values($workers)) ?>;
 const initialProstoje = <?= json_encode(array_values($prostoje)) ?>;
-const pracovisteId = <?= (int)($z['pracovisite_id']??0) ?>;
-const pracovisteNorma = <?= (float)($pracovisteList[array_search($z['pracovisite_id']??0,array_column($pracovisteList,'id'))]??[])['norma_ks_min'] ?? 0 ?>;
-const pracovisteCycle = <?= (float)($pracovisteList[array_search($z['pracovisite_id']??0,array_column($pracovisteList,'id'))]??[])['cyklus_min'] ?? 0 ?>;
+const initialNok = <?= json_encode($nokMap) ?>;
+const initialHourly = <?= json_encode($hodinyMap) ?>;
 
-// Init pwData from selected pracovisite
-(function() {
-    const sel = document.getElementById('pracovisite_id');
-    if (sel && sel.value) {
-        const opt = sel.options[sel.selectedIndex];
-        if (opt) {
-            pwData = {
-                norma: parseFloat(opt.dataset.norma)||0,
-                cycle: parseFloat(opt.dataset.cycle)||0,
-                afo: opt.dataset.afo || ''
+// Uchování již zadaných hodnot při změně časů
+let savedHourlyValues = {};
+Object.keys(initialHourly).forEach(k => {
+    savedHourlyValues[k] = {
+        vyr: initialHourly[k].vyrobeno > 0 ? initialHourly[k].vyrobeno : '',
+        p: initialHourly[k].p_minuty > 0 ? initialHourly[k].p_minuty : '',
+        t: initialHourly[k].t_minuty > 0 ? initialHourly[k].t_minuty : ''
+    };
+});
+
+function renderHourlyGrid() {
+    const container = document.getElementById('hourly-container');
+    if (!container) return;
+
+    container.querySelectorAll('.hour-card').forEach(card => {
+        const slot = card.dataset.slot;
+        if (slot) {
+            savedHourlyValues[slot] = {
+                vyr: card.querySelector('input[name$="[vyrobeno]"]')?.value || '',
+                p: card.querySelector('input[name$="[p_minuty]"]')?.value || '',
+                t: card.querySelector('input[name$="[t_minuty]"]')?.value || ''
             };
         }
+    });
+
+    const casOdVal = document.getElementById('cas-od')?.value || '06:00';
+    const casDoVal = document.getElementById('cas-do')?.value;
+    const pracDobaVal = parseInt(document.getElementById('prac-doba')?.value, 10) || 480;
+
+    let pocetHodin = 8;
+    if (casOdVal && casDoVal) {
+        let [oh, om] = casOdVal.split(':').map(Number);
+        let [dh, dm] = casDoVal.split(':').map(Number);
+        if (!isNaN(oh) && !isNaN(dh)) {
+            let totalMin = (dh * 60 + dm) - (oh * 60 + om);
+            if (totalMin <= 0) totalMin += 1440;
+            pocetHodin = Math.max(1, Math.round(totalMin / 60));
+        }
+    } else {
+        pocetHodin = Math.max(1, Math.round(pracDobaVal / 60));
     }
-    document.getElementById('d-norma').textContent = pwData.norma ? pwData.norma.toFixed(4) : '—';
-    document.getElementById('d-cycle').textContent = pwData.cycle ? pwData.cycle.toFixed(4) : '—';
-    applyNokVisibilityByAfo(pwData.afo);
-})();
+
+    let startHour = parseInt(casOdVal.split(':')[0], 10);
+    if (isNaN(startHour)) startHour = 6;
+
+    let html = '';
+    for (let i = 0; i < pocetHodin; i++) {
+        const hFrom = (startHour + i) % 24;
+        const hTo = (startHour + i + 1) % 24;
+        const pad = n => String(n).padStart(2, '0');
+        const slot = `${pad(hFrom)}-${pad(hTo)}`;
+        const existing = savedHourlyValues[slot] || { vyr: '', p: '', t: '' };
+
+        html += `
+        <div class="hour-card" data-slot="${slot}">
+            <div class="hour-label">${slot}</div>
+            <input type="hidden" name="hodiny[${slot}][hodina_od]" value="${slot}">
+            <div class="row g-1">
+                <div class="col-4">
+                    <div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem">${window.LANG_TEXT.hour_from || 'Vyrobeno'}</div>
+                    <input type="number" name="hodiny[${slot}][vyrobeno]" class="form-control" min="0" placeholder="ks" 
+                           value="${escapeHtml(existing.vyr)}" style="padding:.28rem .4rem;font-size:.75rem">
+                </div>
+                <div class="col-4">
+                    <div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem">P (min)</div>
+                    <input type="number" name="hodiny[${slot}][p_minuty]" class="form-control" min="0" max="60" placeholder="0" 
+                           value="${escapeHtml(existing.p)}" style="padding:.28rem .4rem;font-size:.75rem">
+                </div>
+                <div class="col-4">
+                    <div style="font-size:.57rem;color:var(--muted);margin-bottom:.18rem">T (min)</div>
+                    <input type="number" name="hodiny[${slot}][t_minuty]" class="form-control" min="0" max="60" placeholder="0" 
+                           value="${escapeHtml(existing.t)}" style="padding:.28rem .4rem;font-size:.75rem">
+                </div>
+            </div>
+        </div>`;
+    }
+    container.innerHTML = html;
+}
+
+// Meta + Header
+function getISOWeekNumber(dStr) {
+    if (!dStr) return '';
+    const parts = dStr.split('-').map(Number);
+    if (parts.length !== 3) return '';
+    const date = new Date(parts[0], parts[1] - 1, parts[2]);
+    if (isNaN(date.getTime())) return '';
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+    const week1 = new Date(date.getFullYear(), 0, 4);
+    return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+}
 
 function updateMeta() {
     const d = document.getElementById('input-datum').value;
     if (!d) return;
-    const dt = new Date(d);
-    const jan4 = new Date(dt.getFullYear(),0,4);
-    const dy = (dt - new Date(dt.getFullYear(),0,0))/86400000;
-    const cw = Math.ceil((dy - (jan4.getDay()||7) + 4) / 7);
-    document.getElementById('disp-cw').textContent = 'KT '+cw;
+    const cw = getISOWeekNumber(d);
+    document.getElementById('disp-cw').textContent = 'KT ' + cw;
+    const parts = d.split('-').map(Number);
+    if (parts.length === 3) {
+        const dt = new Date(parts[0], parts[1] - 1, parts[2]);
+        document.getElementById('header-meta').textContent = new Intl.DateTimeFormat('cs-CZ', {
+            weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric'
+        }).format(dt);
+    }
 }
 
+// Typ
 function setTyp(typ) {
+    currentTyp = typ;
     document.getElementById('input-typ').value = typ;
     document.getElementById('btn-serie').classList.toggle('active', typ==='serie');
     document.getElementById('btn-filtry').classList.toggle('active', typ==='filtry');
+    const b = document.getElementById('typ-badge');
+    b.textContent = typ==='serie'?'SÉRIE':'FILTRY';
+    b.className = 'badge-'+typ;
+    refreshPracovisteSuggestByTyp();
+    calcCisty();
+}
+
+function getPracovisteSuggestForTyp(typ) {
+    return pracovisteSuggest.filter(item => item.typ === typ || item.typ === 'obe');
+}
+
+let pracovisteDropdownHighlight = -1;
+
+function onPracovisteInput(val) {
+    const q = String(val || '').trim();
+    const hiddenId = document.getElementById('pracovisite_id');
+    if (hiddenId && event && event.type === 'input') hiddenId.value = '';
+
+    if (!q) {
+        renderPracovisteDropdown(activePracovisteSuggest.slice(0, 200));
+        return;
+    }
+    const qNorm = q.toLocaleLowerCase('cs-CZ');
+    const results = activePracovisteSuggest.filter(item => item.search.includes(qNorm));
+    renderPracovisteDropdown(results.slice(0, 100));
+}
+
+function renderPracovisteDropdown(list) {
+    const dd = document.getElementById('pracovisite_dropdown');
+    if (!list.length) { dd.style.display = 'none'; return; }
+    pracovisteDropdownHighlight = -1;
+    dd.innerHTML = list.map((item, i) =>
+        `<div class="pw-dd-item" data-id="${item.id}" style="padding:6px 10px;cursor:pointer;font-size:.85rem;border-bottom:1px solid var(--border);color:var(--text)"
+            onmousedown="pickPracovisteItem('${item.id}')"
+            onmouseover="highlightPracovisteItem(${i})"
+            onmouseout="if(pracovisteDropdownHighlight!==${i}){this.style.background='';this.style.color='var(--text)'}">${escapeHtml(item.label)}</div>`
+    ).join('');
+    dd.style.display = 'block';
+}
+
+function highlightPracovisteItem(idx) {
+    pracovisteDropdownHighlight = idx;
+    document.querySelectorAll('#pracovisite_dropdown .pw-dd-item').forEach((el, i) => {
+        el.style.background = i === idx ? 'var(--accent)' : '';
+        el.style.color = i === idx ? '#fff' : 'var(--text)';
+    });
+}
+
+function pickPracovisteItem(id) {
+    const item = activePracovisteSuggest.find(p => String(p.id) === String(id));
+    if (!item) return;
+    document.getElementById('pracovisite_search').value = item.label;
+    document.getElementById('pracovisite_id').value = String(item.id);
+    closePracovisteDropdown();
+    loadPracovisteData(String(item.id));
+}
+
+function closePracovisteDropdown() {
+    const dd = document.getElementById('pracovisite_dropdown');
+    if (dd) dd.style.display = 'none';
+    pracovisteDropdownHighlight = -1;
+}
+
+function onPracovisteKeydown(e) {
+    const dd = document.getElementById('pracovisite_dropdown');
+    const items = dd ? dd.querySelectorAll('.pw-dd-item') : [];
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        pracovisteDropdownHighlight = Math.min(pracovisteDropdownHighlight + 1, items.length - 1);
+        highlightPracovisteItem(pracovisteDropdownHighlight);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        pracovisteDropdownHighlight = Math.max(pracovisteDropdownHighlight - 1, 0);
+        highlightPracovisteItem(pracovisteDropdownHighlight);
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (pracovisteDropdownHighlight >= 0 && items[pracovisteDropdownHighlight]) {
+            pickPracovisteItem(items[pracovisteDropdownHighlight].dataset.id);
+        } else if (items.length > 0) {
+            pickPracovisteItem(items[0].dataset.id);
+        }
+    } else if (e.key === 'Escape') {
+        closePracovisteDropdown();
+    }
+}
+
+function refreshPracovisteSuggestByTyp() {
+    activePracovisteSuggest = getPracovisteSuggestForTyp(currentTyp);
+    const hidden = document.getElementById('pracovisite_id');
+    const selectedId = hidden ? String(hidden.value || '') : '';
+    if (selectedId && !activePracovisteSuggest.some(item => String(item.id) === selectedId)) {
+        document.getElementById('pracovisite_search').value = '';
+        loadPracovisteData('');
+    }
+}
+
+function renderNokGroups() {
+    const container = document.getElementById('nok-groups-container');
+    if (!container || container.dataset.rendered === '1') return;
+
+    const items = [];
+    nokTemplateGroups.forEach(group => {
+        if (!group.items || !group.items.length) return;
+        group.items.forEach(item => {
+            const id = Number(item.id || 0);
+            const kod = escapeHtml(item.kod || '');
+            const popis = escapeHtml(item.popis || '');
+            const val = initialNok[id] || '';
+            
+            items.push(`<div class="nok-item col-12 col-md-6 col-xl-4" data-nok-id="${id}" style="padding-right: 3rem; padding-bottom: 0.5rem;">
+                <span class="nok-code">${kod}</span>
+                <label for="nok_${id}">${popis}</label>
+                <input type="number" name="nok[${id}]" id="nok_${id}" class="form-control nok-qty" min="0" max="9999" placeholder="0" value="${val}" onchange="updateNokBadge()">
+            </div>`);
+        });
+    });
+
+    container.innerHTML = items.join('');
+    container.dataset.rendered = '1';
 }
 
 function loadPracovisteData(id) {
-    const sel = document.getElementById('pracovisite_id');
-    const opt = sel.options[sel.selectedIndex];
-    if (!id || !opt) { pwData={}; return; }
-    pwData = {
-        zakaznik:opt.dataset.zakaznik, projekt:opt.dataset.projekt, verze:opt.dataset.verze,
-        afo:opt.dataset.afo, nazev:opt.dataset.nazev, dil:opt.dataset.dil,
-        sap:opt.dataset.sap, ns:opt.dataset.ns,
-        norma:parseFloat(opt.dataset.norma)||0, cycle:parseFloat(opt.dataset.cycle)||0
-    };
+    const selected = pracovisteById[String(id)];
+    if (!id||!selected) {
+        ['zakaznik','projekt','verze','afo','ns','nazev','dil','sap'].forEach(k=>document.getElementById('disp-'+k).textContent='—');
+        pwData={};
+        const search = document.getElementById('pracovisite_search');
+        if (search) search.value = '';
+        const hidden = document.getElementById('pracovisite_id');
+        if (hidden) hidden.value = '';
+        applyNokVisibilityByAfo('', '');
+        return;
+    }
+    pwData = { zakaznik:selected.zakaznik, projekt:selected.projekt, verze:selected.verze,
+        afo:selected.afo, nazev:selected.nazev, dil:selected.dil,
+        sap:selected.sap, ns:selected.ns,
+        norma:parseFloat(selected.norma)||0, cycle:parseFloat(selected.cycle)||0 };
+    const search = document.getElementById('pracovisite_search');
+    if (search) search.value = selected.label;
+    const hidden = document.getElementById('pracovisite_id');
+    if (hidden) hidden.value = String(selected.id);
+    
     document.getElementById('disp-zakaznik').textContent = pwData.zakaznik;
     document.getElementById('disp-projekt').textContent  = pwData.projekt;
     document.getElementById('disp-verze').textContent    = pwData.verze;
@@ -635,69 +823,186 @@ function loadPracovisteData(id) {
     document.getElementById('disp-sap').textContent      = pwData.sap;
     document.getElementById('d-norma').textContent       = pwData.norma ? pwData.norma.toFixed(4) : '—';
     document.getElementById('d-cycle').textContent       = pwData.cycle ? pwData.cycle.toFixed(4) : '—';
-    applyNokVisibilityByAfo(pwData.afo);
+    
+    applyNokVisibilityByAfo(String(selected.cisloId || ''), String(pwData.afo || ''));
     calcOEE();
 }
 
-function applyNokVisibilityByAfo(afoText) {
-    const nokInputs = Array.from(document.querySelectorAll('input[id^="nok_"]'));
-    if (nokInputs.length === 0) return;
-    
-    const afoTokens = [];
-    if (afoText) {
-        const matches = String(afoText || '').match(/\d+/g) || [];
-        afoTokens.push(...matches);
-    }
-    
-    let mapForAfo = null;
-    if (afoTokens.length > 0) {
-        const tempMap = {};
-        for (const token of afoTokens) {
-            const tokenMap = nokAfoVisibilityMap[token];
-            if (!tokenMap) continue;
-            for (const nokId in tokenMap) {
-                if (tokenMap[nokId] === true || tokenMap[nokId] === 1 || tokenMap[nokId] === '1') {
-                    tempMap[nokId] = true;
-                }
-            }
-        }
-        // Only set mapForAfo if we found something, otherwise show all
-        if (Object.keys(tempMap).length > 0) {
-            mapForAfo = tempMap;
-        }
-    }
-    
-    nokInputs.forEach(input => {
-        const nokId = input.id.replace('nok_', '');
-        const nokItem = input.closest('.nok-item');
-        if (!nokItem) return;
-        
-        let visible = true;
-        if (mapForAfo) {
-            visible = !!mapForAfo[nokId];
-        }
-        nokItem.parentElement.style.display = visible ? '' : 'none';
+function extractAfoTokens(afoText) {
+    const src = String(afoText || '').trim();
+    if (!src) return [];
+    const matches = src.match(/\d+/g) || [];
+    return Array.from(new Set(matches.map(v => String(parseInt(v, 10)).trim()).filter(v => v !== '' && v !== 'NaN')));
+}
+
+function buildVisibilityFromAfoTokens(afoTokens) {
+    if (!Array.isArray(afoTokens) || afoTokens.length === 0) return null;
+    const hasAny = afoTokens.some(token => Object.prototype.hasOwnProperty.call(nokAfoVisibilityMap, token));
+    if (!hasAny) return null;
+
+    const merged = {};
+    afoTokens.forEach(token => {
+        const tokenMap = nokAfoVisibilityMap[token];
+        if (!tokenMap) return;
+        Object.keys(tokenMap).forEach(nokId => {
+            merged[nokId] = (merged[nokId] === true) || tokenMap[nokId] === true || tokenMap[nokId] === 1 || tokenMap[nokId] === '1';
+        });
     });
+    return merged;
+}
+
+function applyNokVisibilityByAfo(workplaceId, afoText) {
+    const idKey = String(workplaceId || '').trim();
+    if (idKey !== '' || String(afoText || '').trim() !== '') {
+        renderNokGroups();
+    }
+    const mapByWorkplaceId = idKey && nokAfoVisibilityMap[idKey] ? nokAfoVisibilityMap[idKey] : null;
+    const afoTokens = extractAfoTokens(afoText);
+    const mapByTextTokens = buildVisibilityFromAfoTokens(afoTokens);
+    const mapForAfo = mapByWorkplaceId || mapByTextTokens;
+    const nokRows = Array.from(document.querySelectorAll('#sec-nok .nok-item[data-nok-id]'));
+    const strictMode = idKey !== '' || String(afoText || '').trim() !== '';
+
+    nokRows.forEach(row => {
+        const nokId = String(row.getAttribute('data-nok-id') || '');
+        let visible = true;
+        if (strictMode) {
+            visible = !!(mapForAfo && (mapForAfo[nokId] === true || mapForAfo[nokId] === 1 || mapForAfo[nokId] === '1'));
+        }
+        
+        // Záchrana pro editaci - pokud už to má vyplněnou hodnotu z DB, UDRŽ to zobrazené navzdory AFO (změna normy apod.)
+        const input = row.querySelector('input.nok-qty');
+        if (input && parseInt(input.value, 10) > 0) {
+            visible = true;
+        }
+
+        if (!visible && input) input.value = '';
+        row.style.display = visible ? '' : 'none';
+    });
+
+    const anyVisible = nokRows.some(row => row.style.display !== 'none');
+    const hint = document.getElementById('nok-empty-hint');
+    if (hint) hint.style.display = (mapForAfo && !anyVisible) ? '' : 'none';
+
+    const dbgCard = nokDebugEnabled ? document.getElementById('nok-afo-debug') : null;
+    if (dbgCard) {
+        dbgCard.style.display = '';
+        document.getElementById('dbg-afo-text').textContent = String(afoText || '');
+        document.getElementById('dbg-afo-tokens').textContent = afoTokens.length ? afoTokens.join(', ') : '—';
+        document.getElementById('dbg-afo-map').textContent = mapForAfo ? 'ano' : 'ne';
+        document.getElementById('dbg-afo-visible').textContent = String(nokRows.filter(r => r.style.display !== 'none').length);
+    }
+    updateNokBadge();
+}
+
+// Směny
+const sDef = <?= json_encode(array_combine(
+    array_column($smenyList, 'kod'),
+    array_map(static fn($s) => [
+        'od'    => substr((string)$s['cas_od'], 0, 5),
+        'do'    => substr((string)$s['cas_do'], 0, 5),
+        'min'   => (int)$s['pracovni_doba_min'],
+        'pauza' => (int)$s['pauza_min'],
+    ], $smenyList)
+), JSON_UNESCAPED_UNICODE) ?>;
+
+function normZoneKey(val) {
+    return String(val || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function toMinutes(value) {
+    const src = String(value || '').trim();
+    if (!src || !src.includes(':')) return null;
+    const [h, m] = src.split(':').map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+    return h * 60 + m;
+}
+
+function overlapMinutes(aStart, aEnd, bStart, bEnd) {
+    const from = Math.max(aStart, bStart);
+    const to = Math.min(aEnd, bEnd);
+    return Math.max(0, to - from);
+}
+
+function computeDynamicPauzaMinutes() {
+    const smenaKod = String(document.getElementById('input-smena')?.value || '').toUpperCase();
+    const casOd = document.getElementById('cas-od')?.value || '';
+    const casDo = document.getElementById('cas-do')?.value || '';
+    const odMin = toMinutes(casOd);
+    const doMin = toMinutes(casDo);
+    if (odMin === null || doMin === null || !smenaKod) return null;
+
+    const zonaWanted = normZoneKey(currentTyp === 'filtry' ? 'Filtry' : 'Série');
+    const rezimWanted = smenaKod.includes('12') ? 12 : 8;
+
+    let workEnd = doMin;
+    if (workEnd <= odMin) workEnd += 1440;
+
+    let total = 0;
+    prestavkyDef.forEach((br) => {
+        if ((parseInt(br.aktivni, 10) || 0) !== 1) return;
+        if (normZoneKey(br.zona) !== zonaWanted) return;
+        if ((parseInt(br.rezim_hod, 10) || 0) !== rezimWanted) return;
+        if (String(br.smena_kod || '').toUpperCase() !== smenaKod) return;
+
+        const bStartBase = toMinutes(br.cas_od);
+        const bEndBaseRaw = toMinutes(br.cas_do);
+        if (bStartBase === null || bEndBaseRaw === null) return;
+
+        let bEndBase = bEndBaseRaw;
+        if (bEndBase <= bStartBase) bEndBase += 1440;
+
+        const overlapA = overlapMinutes(odMin, workEnd, bStartBase, bEndBase);
+        const overlapB = overlapMinutes(odMin, workEnd, bStartBase + 1440, bEndBase + 1440);
+        total += Math.max(overlapA, overlapB);
+    });
+    return Math.max(0, total);
+}
+
+function applyDynamicPauza() {
+    const pauzaInput = document.getElementById('pauza');
+    if (!pauzaInput) return;
+    const minutes = computeDynamicPauzaMinutes();
+    if (minutes === null) return;
+    pauzaInput.value = String(minutes);
+}
+
+function applySmenaDefaults() {
+    const s = document.getElementById('input-smena').value;
+    const d = sDef[s]; if(!d) return;
+    document.getElementById('cas-od').value    = d.od;
+    document.getElementById('cas-do').value    = d.do;
+    document.getElementById('prac-doba').value = d.min;
+    applyDynamicPauza();
+    calcCisty();
 }
 
 function calcCisty() {
+    applyDynamicPauza();
     const od=document.getElementById('cas-od').value, dc=document.getElementById('cas-do').value;
     const pauza=parseInt(document.getElementById('pauza').value)||0;
     if(od&&dc){
         let [oh,om]=od.split(':').map(Number), [dh,dm]=dc.split(':').map(Number);
         let total=(dh*60+dm)-(oh*60+om); if(total<0) total+=1440;
-        total=Math.max(0,total-pauza);
-        document.getElementById('prac-doba').value=total;
-        document.getElementById('disp-cisty').textContent=total+' min';
-        document.getElementById('cisty-hidden').value=total;
+        const grossTotal=Math.max(0,total);
+        const cisty=Math.max(0,total-pauza);
+        document.getElementById('prac-doba').value=grossTotal;
+        document.getElementById('disp-cisty').textContent=cisty+' min';
+        document.getElementById('cisty-hidden').value=cisty;
     }
     calcOEE();
+    renderHourlyGrid();
 }
 
 function calcKs() {
-    const v=parseInt(document.getElementById('vyrobeno').value)||0;
-    const n=parseInt(document.getElementById('nokks').value)||0;
-    document.getElementById('disp-dobre').textContent=(Math.max(0,v-n)).toLocaleString('cs-CZ');
+    const v = parseInt(document.getElementById('vyrobeno').value) || 0;
+    const n = parseInt(document.getElementById('nokks').value) || 0;
+    const tech = parseInt(document.getElementById('tech').value) || 0;
+    const blok = parseInt(document.getElementById('blok').value) || 0;
+    const tnz = parseInt(document.getElementById('tnz').value) || 0;
+    const dobre = Math.max(0, v - n - tech - blok - tnz);
+    document.getElementById('disp-dobre').textContent = dobre.toLocaleString('cs-CZ');
+    updateNokBadge();
 }
 
 function calcProstoje() {
@@ -705,9 +1010,7 @@ function calcProstoje() {
     document.querySelectorAll('#tech-tbody tr').forEach((row) => {
         const code = String(row.querySelector('select[name$="[typ_kod]"]')?.value || '').trim().toUpperCase();
         const minutes = parseInt(row.querySelector('input[name$="[minuty]"]')?.value || '0', 10) || 0;
-        if (!code || minutes <= 0) {
-            return;
-        }
+        if (!code || minutes <= 0) return;
 
         let bucket = 'tech';
         if (code.startsWith('P')) bucket = 'plan';
@@ -733,61 +1036,44 @@ function calcProstoje() {
 function calcOEE() {
     const vyr = parseInt(document.getElementById('vyrobeno').value) || 0;
     const nok = parseInt(document.getElementById('nokks').value) || 0;
+    const tech = parseInt(document.getElementById('tech').value) || 0;
+    const blok = parseInt(document.getElementById('blok').value) || 0;
+    const tnz = parseInt(document.getElementById('tnz').value) || 0;
     const prac = parseInt(document.getElementById('prac-doba').value) || 0;
     const pauza2 = parseInt(document.getElementById('pauza').value) || 0;
     
-    // Načtení plánovaných a VŠECH prostojů z DOMu
     const plan = parseInt(document.getElementById('ps-plan')?.textContent || '0', 10) || 0;
     const celkProstoje = parseInt(document.getElementById('ps-celk')?.textContent || '0', 10) || 0;
+    const neplanProstoje = Math.max(0, celkProstoje - plan);
     
-    // Čistý čas = Pracovní doba mínus pauza
     const cisty = Math.max(0, prac - pauza2);
-    
     document.getElementById('cisty-hidden').value = cisty;
     document.getElementById('disp-cisty').textContent = cisty + ' min';
     
     let A = null, P = null, Q = null, OEE = null;
     
     if (cisty > 0 && prac > 0) {
-        // Správný základ pro Dostupnost (jen čistý čas mínus plánované prostoje)
-        const planovanyCasVyroby = Math.max(1, cisty - plan);
-        // Správný čas pro Výkon (čistý čas mínus úplně všechny prostoje)
-        const operacniCas = Math.max(0, cisty - celkProstoje);
+        const planovanyCasVyroby = Math.max(0, cisty - plan);
+        const operacniCas = Math.max(0, planovanyCasVyroby - neplanProstoje);
         
-        // 1. DOSTUPNOST
-        A = operacniCas / planovanyCasVyroby;
-        
-        // 2. VÝKON (počítáno z operačního času místo čistého)
+        if (planovanyCasVyroby > 0) A = Math.min(1.0, Math.max(0, operacniCas / planovanyCasVyroby));
         if (pwData.cycle > 0 && operacniCas > 0) {
-            P = vyr / (operacniCas / pwData.cycle);
+            P = Math.min(1.5, Math.max(0, vyr / (operacniCas / pwData.cycle)));
         } else if (operacniCas === 0) {
             P = 0;
         }
-        
-        // 3. KVALITA
-        if (vyr > 0) {
-            Q = (vyr - nok) / vyr;
-        } else {
-            Q = 0;
-        }
-        
-        // OEE CELKEM (zastropováno max na 100%)
-        if (A !== null && P !== null && Q !== null) {
-            OEE = Math.min(1, A * P * Q);
-        }
+        if (vyr > 0) Q = Math.min(1.0, Math.max(0, (vyr - nok) / vyr)); else Q = 0;
+        if (A !== null && P !== null && Q !== null) OEE = Math.min(1.0, Math.max(0, A * P * Q));
     }
     
-    // Vykreslení čísel a progress barů
     const pct = v => v !== null ? (v * 100).toFixed(1) + '%' : '—';
-    
     ['a','p','q'].forEach((k,i) => {
         const v = [A,P,Q][i];
         document.getElementById('oee-val-'+k).textContent = pct(v);
-        if(v !== null) document.getElementById('oee-bar-'+k).style.width = Math.min(100, Math.max(0, v * 100)).toFixed(1) + '%';
+        if(v !== null) document.getElementById('oee-bar-'+k).style.width = Math.min(100, v * 100).toFixed(1) + '%';
     });
     
     document.getElementById('oee-total').textContent = OEE !== null ? (OEE * 100).toFixed(1) + '%' : '—';
-    
     const st = document.getElementById('oee-status');
     if (OEE !== null) {
         const p2 = OEE * 100;
@@ -795,14 +1081,14 @@ function calcOEE() {
         st.style.color = p2 >= 85 ? 'var(--accent)' : (p2 >= 70 ? 'var(--warn)' : 'var(--accent2)');
     }
     
-    // Summary boxík
     const sl = document.getElementById('summary-lines');
     const row = (l, v, c) => `<div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:.12rem 0"><span style="color:var(--muted)">${l}</span><span class="mono" style="font-weight:600;color:${c||'var(--text)'}">${v}</span></div>`;
+    const dobre = Math.max(0, vyr - nok - tech - blok - tnz);
+
     sl.innerHTML = row(window.LANG_TEXT.summary_net_time, cisty + ' min') + 
-                   row('Operační čas', operacniCas + ' min') +
                    row(window.LANG_TEXT.summary_produced, vyr.toLocaleString()) + 
                    row(window.LANG_TEXT.summary_nok, nok + ' ks', nok > 0 ? 'var(--accent2)' : 'var(--text)') + 
-                   row(window.LANG_TEXT.summary_ok, (Math.max(0, vyr - nok)).toLocaleString(), 'var(--accent)') + 
+                   row(window.LANG_TEXT.summary_ok, dobre.toLocaleString(), 'var(--accent)') + 
                    row(window.LANG_TEXT.summary_oee, pct(OEE), OEE >= .85 ? 'var(--accent)' : (OEE >= .7 ? 'var(--warn)' : 'var(--accent2)'));
 }
 
@@ -810,6 +1096,7 @@ function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
 }
 
+// Pracovníci search
 function addWorkerRow(data = {}) {
     workerIdx++;
     const index = workerIdx;
@@ -820,7 +1107,15 @@ function addWorkerRow(data = {}) {
         <div class="row g-3 align-items-end">
             <div class="col-12 col-lg-4">
                 <label class="form-label-dvd"><?= t('pracovnik') ?></label>
-                <select name="workers[${index}][pracovnik_id]" class="form-select" onchange="fillWorkerRow(this)">${workerSelectOptions}</select>
+                <div style="position:relative">
+                    <input type="text" name="workers[${index}][pracovnik_search]" class="form-control" autocomplete="off" placeholder="<?= h(t('select_worker')) ?>"
+                        oninput="onWorkerInput(this)"
+                        onfocus="onWorkerInput(this)"
+                        onkeydown="onWorkerKeydown(event, this)"
+                        onblur="setTimeout(() => closeWorkerDropdown(this), 150)">
+                    <div class="worker-dropdown" style="display:none;position:absolute;z-index:1000;width:100%;max-height:220px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;box-shadow:0 4px 8px rgba(0,0,0,.3)"></div>
+                </div>
+                <input type="hidden" name="workers[${index}][pracovnik_id]" value="">
             </div>
             <div class="col-12 col-lg-4">
                 <label class="form-label-dvd"><?= t('or_manually') ?></label>
@@ -831,15 +1126,21 @@ function addWorkerRow(data = {}) {
                 <select name="workers[${index}][pracovni_pozice]" class="form-select">${workerPositionOptions}</select>
             </div>
             <div class="col-4 col-lg-1 d-flex justify-content-end">
-                <button type="button" class="btn-rm" title="<?= h(t('delete')) ?>" onclick="removeWorkerRow(${index})"><i class="bi bi-trash3"></i></button>
+                <button type="button" class="btn-rm" title="<?= h(t('delete')) ?>" aria-label="<?= h(t('delete')) ?>" onclick="removeWorkerRow(${index})"><i class="bi bi-trash3"></i></button>
             </div>
         </div>
     </div>`;
     document.getElementById('workers-list').appendChild(wrapper);
 
-    const select = wrapper.querySelector(`select[name="workers[${index}][pracovnik_id]"]`);
+    const hiddenWorkerId = wrapper.querySelector(`input[name="workers[${index}][pracovnik_id]"]`);
+    const searchInput = wrapper.querySelector(`input[name="workers[${index}][pracovnik_search]"]`);
+    const manualInput = wrapper.querySelector(`input[name="workers[${index}][jmeno_rucne]"]`);
     const position = wrapper.querySelector(`select[name="workers[${index}][pracovni_pozice]"]`);
-    if (data.pracovnik_id) select.value = String(data.pracovnik_id);
+    if (data.pracovnik_id) {
+        const selected = pracovniciById[String(data.pracovnik_id)] || null;
+        if (hiddenWorkerId) hiddenWorkerId.value = String(data.pracovnik_id);
+        if (searchInput && selected) searchInput.value = selected.label;
+    }
     if (data.pracovni_pozice) position.value = data.pracovni_pozice;
 }
 
@@ -849,19 +1150,80 @@ function removeWorkerRow(index) {
     if (!row) return;
     if (rows.length === 1) {
         row.querySelectorAll('input, select').forEach(el => {
-            el.tagName === 'SELECT' ? el.selectedIndex = 0 : el.value = '';
+            if (el.tagName === 'SELECT') { el.selectedIndex = 0; } else { el.value = ''; }
         });
         return;
     }
     row.remove();
 }
 
+function onWorkerInput(inputEl) {
+    const q = String(inputEl.value || '').trim();
+    const row = inputEl.closest('.worker-entry');
+    if (!row) return;
+    if (event && event.type === 'input') {
+        const hiddenId = row.querySelector('input[name$="[pracovnik_id]"]');
+        if (hiddenId) hiddenId.value = '';
+    }
+    const dd = inputEl.nextElementSibling;
+    if (!dd || !dd.classList.contains('worker-dropdown')) return;
+
+    let results;
+    if (!q) { results = pracovniciSuggest.slice(0, 60); } 
+    else {
+        const qNorm = q.toLocaleLowerCase('cs-CZ');
+        results = pracovniciSuggest.filter(item => item.search.includes(qNorm)).slice(0, 50);
+    }
+    if (!results.length) { dd.style.display = 'none'; return; }
+    dd.innerHTML = results.map((item, i) =>
+        `<div class="pw-dd-item" data-id="${item.id}" style="padding:6px 10px;cursor:pointer;font-size:.85rem;border-bottom:1px solid var(--border);color:var(--text)"
+            onmousedown="pickWorkerItem(this, '${item.id}')"
+            onmouseover="this.style.background='var(--accent)';this.style.color='#fff'"
+            onmouseout="this.style.background='';this.style.color='var(--text)'">${escapeHtml(item.label)}</div>`
+    ).join('');
+    dd.style.display = 'block';
+}
+
+function closeWorkerDropdown(inputEl) {
+    const dd = inputEl.nextElementSibling;
+    if (dd && dd.classList.contains('worker-dropdown')) dd.style.display = 'none';
+}
+
+function pickWorkerItem(ddItem, id) {
+    const match = pracovniciById[String(id)];
+    if (!match) return;
+    const dd = ddItem.closest('.worker-dropdown');
+    const row = ddItem.closest('.worker-entry');
+    if (!row) return;
+    const searchInput = row.querySelector('input[name$="[pracovnik_search]"]');
+    const hiddenId = row.querySelector('input[name$="[pracovnik_id]"]');
+    const manualInput = row.querySelector('input[name$="[jmeno_rucne]"]');
+    if (searchInput) searchInput.value = match.label;
+    if (hiddenId) hiddenId.value = String(match.id);
+    if (manualInput && !manualInput.value) manualInput.value = match.jmeno || '';
+    if (dd) dd.style.display = 'none';
+}
+
+function onWorkerKeydown(e, inputEl) {
+    const dd = inputEl.nextElementSibling;
+    if (!dd || !dd.classList.contains('worker-dropdown')) return;
+    const items = dd.querySelectorAll('.pw-dd-item');
+    let hi = parseInt(dd.dataset.hi ?? '-1', 10);
+    if (e.key === 'ArrowDown') { e.preventDefault(); hi = Math.min(hi + 1, items.length - 1); } 
+    else if (e.key === 'ArrowUp') { e.preventDefault(); hi = Math.max(hi - 1, 0); } 
+    else if (e.key === 'Enter') { e.preventDefault(); const t = hi >= 0 ? items[hi] : items[0]; if (t) pickWorkerItem(t, t.dataset.id); return; } 
+    else if (e.key === 'Escape') { dd.style.display = 'none'; return; } 
+    else { return; }
+    dd.dataset.hi = hi;
+    items.forEach((el, i) => { el.style.background = i === hi ? 'var(--accent)' : ''; el.style.color = i === hi ? '#fff' : 'var(--text)'; });
+}
+
+// Prostoje
 function computeDowntimeMinutesFromRange(od, dc) {
     if (!od || !dc) return null;
     const [oh, om] = String(od).split(':').map(Number);
     const [dh, dm] = String(dc).split(':').map(Number);
     if ([oh, om, dh, dm].some(Number.isNaN)) return null;
-
     let total = (dh * 60 + dm) - (oh * 60 + om);
     if (total < 0) total += 1440;
     return Math.max(0, total);
@@ -877,6 +1239,12 @@ function recalcDowntimeRowMinutes(row) {
     const minutes = computeDowntimeMinutesFromRange(odInput.value, doInput.value);
     if (minutes === null) return;
     minInput.value = String(minutes);
+
+    const isValid = validateDowntimeRow(row);
+    if (!isValid && odInput.value && doInput.value) {
+        const { shiftOd, shiftDo } = getCurrentShiftBounds();
+        showToast('warn', `⚠ Prostoj (${odInput.value} - ${doInput.value}) je mimo čas směny (${shiftOd} - ${shiftDo})!`);
+    }
     updateTechSum();
 }
 
@@ -887,34 +1255,141 @@ function addTechRow(d={}) {
     const tr=document.createElement('tr');
     tr.id='tr-'+i;
     tr.innerHTML=`<td><select name="prostoje[${i}][typ_kod]" class="form-select" style="min-width:130px;font-size:.75rem;padding:.28rem .5rem" onchange="calcProstoje()">${opts}</select></td>
-        <td><input type="time" name="prostoje[${i}][cas_od]" class="form-control" style="width:95px;font-size:.75rem" value="${d.cas_od||''}" onchange="recalcDowntimeRowMinutes(this.closest('tr'))"></td>
-        <td><input type="time" name="prostoje[${i}][cas_do]" class="form-control" style="width:95px;font-size:.75rem" value="${d.cas_do||''}" onchange="recalcDowntimeRowMinutes(this.closest('tr'))"></td>
+        <td><input type="time" name="prostoje[${i}][cas_od]" class="form-control" style="width:95px;font-size:.75rem" value="${d.cas_od?d.cas_od.substring(0,5):''}" onchange="recalcDowntimeRowMinutes(this.closest('tr'))"></td>
+        <td><input type="time" name="prostoje[${i}][cas_do]" class="form-control" style="width:95px;font-size:.75rem" value="${d.cas_do?d.cas_do.substring(0,5):''}" onchange="recalcDowntimeRowMinutes(this.closest('tr'))"></td>
         <td><input type="number" name="prostoje[${i}][minuty]" class="form-control" style="width:65px;text-align:center;font-size:.75rem" min="0" value="${d.minuty||''}" onchange="updateTechSum()"></td>
         <td><input type="text" name="prostoje[${i}][poznamka]" class="form-control" style="font-size:.75rem" placeholder="…" value="${escapeHtml(d.poznamka||'')}"></td>
         <td><button type="button" class="btn-rm" onclick="document.getElementById('tr-${i}').remove();updateTechSum()"><i class="bi bi-trash3"></i></button></td>`;
     document.getElementById('tech-tbody').appendChild(tr);
     calcProstoje();
 }
-
 function updateTechSum() {
     const t=[...document.querySelectorAll('[name^="prostoje["][name$="][minuty]"]')].reduce((a,e)=>a+(parseInt(e.value)||0),0);
     const el=document.getElementById('ps-tech'); if(el){el.textContent=t;el.dataset.v=t;} calcProstoje();
 }
 
+function getCurrentShiftBounds() {
+    const shiftOd = document.getElementById('cas-od')?.value || (sDef[document.getElementById('input-smena')?.value]?.od || '06:00');
+    const shiftDo = document.getElementById('cas-do')?.value || (sDef[document.getElementById('input-smena')?.value]?.do || '14:00');
+    return { shiftOd, shiftDo };
+}
+
+function isTimeRangeWithinShift(dtOd, dtDo, shiftOd, shiftDo) {
+    if (!dtOd || !dtDo || !shiftOd || !shiftDo) return true;
+    const toMin = t => {
+        const parts = String(t || '').split(':').map(Number);
+        if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+        return parts[0] * 60 + parts[1];
+    };
+    const sOd = toMin(shiftOd); let sDo = toMin(shiftDo);
+    let dOd = toMin(dtOd); let dDo = toMin(dtDo);
+    if (sOd === null || sDo === null || dOd === null || dDo === null) return true;
+    if (sDo <= sOd) sDo += 1440;
+    if (dOd < sOd && (dOd + 1440) <= sDo) dOd += 1440;
+    if (dDo <= (dOd % 1440)) { dDo += 1440; } else if (dOd >= 1440 && dDo < 1440) { dDo += 1440; }
+    return dOd >= sOd && dDo <= sDo;
+}
+
+function validateDowntimeRow(row) {
+    const odInput = row.querySelector('input[name$="[cas_od]"]');
+    const doInput = row.querySelector('input[name$="[cas_do]"]');
+    if (!odInput || !doInput) return true;
+    const od = odInput.value; const doVal = doInput.value;
+    if (!od || !doVal) { odInput.style.borderColor = ''; doInput.style.borderColor = ''; return true; }
+    const { shiftOd, shiftDo } = getCurrentShiftBounds();
+    const valid = isTimeRangeWithinShift(od, doVal, shiftOd, shiftDo);
+    if (!valid) {
+        odInput.style.borderColor = 'var(--accent2)'; doInput.style.borderColor = 'var(--accent2)';
+        odInput.title = `Prostoj (${od}-${doVal}) je mimo čas směny (${shiftOd}-${shiftDo})`;
+        doInput.title = `Prostoj (${od}-${doVal}) je mimo čas směny (${shiftOd}-${shiftDo})`;
+    } else {
+        odInput.style.borderColor = ''; doInput.style.borderColor = '';
+        odInput.title = ''; doInput.title = '';
+    }
+    return valid;
+}
+
+function validateAllDowntimes() {
+    let allValid = true; let invalidCount = 0;
+    document.querySelectorAll('#tech-tbody tr').forEach(row => {
+        const od = row.querySelector('input[name$="[cas_od]"]')?.value;
+        const doVal = row.querySelector('input[name$="[cas_do]"]')?.value;
+        if (od && doVal) { if (!validateDowntimeRow(row)) { allValid = false; invalidCount++; } }
+    });
+    return { allValid, invalidCount };
+}
+
+// NOK Badge a Modaly
+function getNokSectionTotals() {
+    const section04 = parseInt(document.getElementById('nokks')?.value, 10) || 0;
+    const section08 = [...document.querySelectorAll('.nok-qty')].reduce((a,e)=>a+(parseInt(e.value, 10)||0),0);
+    return { section04, section08, diff: section04 - section08 };
+}
+
 function updateNokBadge() {
-    const t=[...document.querySelectorAll('.nok-qty')].reduce((a,e)=>a+(parseInt(e.value)||0),0);
-    const b=document.getElementById('nok-badge'); b.style.display=t>0?'':'none'; b.textContent=t+' ks';
+    const { section04, section08, diff } = getNokSectionTotals();
+    const b = document.getElementById('nok-badge');
+    if (!b) return;
+    b.style.display = (section04 > 0 || section08 > 0) ? '' : 'none';
+    b.textContent = `${section08} / ${section04} ks`;
+    b.style.color = diff === 0 ? 'var(--accent)' : 'var(--accent2)';
 }
 
-function fillWorkerRow(sel) {
-    const row = sel.closest('.worker-entry');
-    if (!row) return;
-    const manualInput = row.querySelector('input[name$="[jmeno_rucne]"]');
-    const option = sel.options[sel.selectedIndex];
-    if (manualInput && option && option.value) manualInput.value = option.dataset.jmeno || '';
+const nokMismatchModal = document.getElementById('nok-mismatch-modal');
+let resolveNokMismatchModal = null;
+
+function closeNokMismatchModal(decision) {
+    if (!nokMismatchModal) return;
+    nokMismatchModal.style.display = 'none';
+    document.body.style.overflow = '';
+    if (resolveNokMismatchModal) {
+        const resolver = resolveNokMismatchModal;
+        resolveNokMismatchModal = null;
+        resolver(decision === true);
+    }
 }
 
-// Collapsible sections
+function openNokMismatchModal(totals) {
+    if (!nokMismatchModal) return Promise.resolve(false);
+    document.getElementById('nok-mismatch-title').textContent = window.LANG_TEXT.nok_mismatch;
+    document.getElementById('nok-mismatch-body').textContent = `${window.LANG_TEXT.nok_mismatch} (${totals.section08}/${totals.section04} ks).`;
+    document.getElementById('nok-mismatch-fill-text').textContent = window.LANG_TEXT.nok_mismatch_auto_fill;
+    document.getElementById('nok-mismatch-yes').textContent = 'Ano doplnit';
+    document.getElementById('nok-mismatch-no').textContent = 'Ne doplním sám';
+    nokMismatchModal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    return new Promise((resolve) => { resolveNokMismatchModal = resolve; });
+}
+
+async function validateNokConsistencyBeforeSubmit() {
+    const totals = getNokSectionTotals();
+    if (totals.diff === 0) return true;
+    if (totals.diff < 0) {
+        showToast('error', `${window.LANG_TEXT.nok_mismatch_exceeded} (${totals.section08}/${totals.section04})`);
+        document.getElementById('sec-nok')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return false;
+    }
+    const shouldAutoFill = await openNokMismatchModal(totals);
+    if (!shouldAutoFill) {
+        showToast('warn', window.LANG_TEXT.nok_mismatch_manual);
+        document.getElementById('sec-nok')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return false;
+    }
+    const ostatniInput = document.getElementById('nok_134');
+    if (!ostatniInput) {
+        showToast('error', window.LANG_TEXT.nok_mismatch_missing_ostatni);
+        document.getElementById('sec-nok')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return false;
+    }
+    const current = parseInt(ostatniInput.value, 10) || 0;
+    ostatniInput.value = String(current + totals.diff);
+    updateNokBadge();
+    calcKs();
+    calcOEE();
+    return true;
+}
+
+// Collapsible
 document.querySelectorAll('.card-header-dvd[data-collapsible]').forEach(h=>{
     h.addEventListener('click',()=>{
         const body=h.nextElementSibling;
@@ -924,15 +1399,50 @@ document.querySelectorAll('.card-header-dvd[data-collapsible]').forEach(h=>{
     });
 });
 
-// Save handler
-document.getElementById('edit-form').addEventListener('submit', async function(e) {
+// Záchyt Enter klávesy v inpuetch (stejně jako index.php)
+document.getElementById('edit-form').addEventListener('keydown', function(e) {
+    const target = e.target;
+    if (e.key !== 'Enter' || target.tagName === 'TEXTAREA') return;
+    const isSubmitShortcut = e.ctrlKey && (e.shiftKey || e.altKey);
+    if (isSubmitShortcut) return;
+    if (!(target.matches('input:not([type="submit"]):not([type="button"]):not([type="hidden"])') || target.matches('select'))) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const formElements = Array.from(document.querySelectorAll('#edit-form input:not([type="hidden"]), #edit-form select, #edit-form textarea'));
+    const currentIndex = formElements.indexOf(target);
+    if (currentIndex > -1 && currentIndex < formElements.length - 1) { formElements[currentIndex + 1].focus(); }
+    return false;
+});
+
+// Potvrzovací Modal Ukládání
+const modal = document.getElementById('confirm-modal');
+async function openConfirmModal(e) {
     e.preventDefault();
     const pracoviste = document.getElementById('pracovisite_id').value;
     const datum = document.getElementById('input-datum').value;
     if (!pracoviste || !datum) {
         showToast('error', window.LANG_TEXT.error_required_fields);
+        document.getElementById('sec-ident').scrollIntoView({behavior:'smooth'});
         return;
     }
+    const dtCheck = validateAllDowntimes();
+    if (!dtCheck.allValid) {
+        const { shiftOd, shiftDo } = getCurrentShiftBounds();
+        showToast('error', `✗ Vložené prostoje (${dtCheck.invalidCount}) jsou mimo čas směny (${shiftOd} - ${shiftDo})!`);
+        document.getElementById('sec-tech')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+    }
+    if (!await validateNokConsistencyBeforeSubmit()) return;
+    
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeConfirmModal() { modal.style.display = 'none'; document.body.style.overflow = ''; }
+modal.addEventListener('click', function(e) { if (e.target === modal) closeConfirmModal(); });
+
+async function executeSave() {
+    closeConfirmModal();
     const btn = document.getElementById('btn-submit');
     const orig = btn.innerHTML;
     btn.disabled = true;
@@ -940,7 +1450,14 @@ document.getElementById('edit-form').addEventListener('submit', async function(e
     try {
         const formData = new FormData(document.getElementById('edit-form'));
         const r = await fetch(APP_URL + '/admin/save_zapis_edit.php', {method:'POST', body:formData});
-        const d = await r.json();
+        const raw = await r.text();
+        let d = null;
+        try { d = raw ? JSON.parse(raw) : null; } catch(err) { d = null; }
+        
+        if (!d || typeof d !== 'object') {
+            throw new Error(`${window.LANG_TEXT.error_save} (HTTP ${r.status})`);
+        }
+        
         if (d.ok) {
             showToast('success', '✓ ' + d.message);
             setTimeout(() => { window.location.href = APP_URL + '/admin/zapis_detail.php?id=' + RECORD_ID; }, 1200);
@@ -953,24 +1470,43 @@ document.getElementById('edit-form').addEventListener('submit', async function(e
         btn.disabled = false;
         btn.innerHTML = orig;
     }
+}
+
+document.getElementById('edit-form').addEventListener('submit', openConfirmModal);
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && nokMismatchModal && nokMismatchModal.style.display === 'flex') {
+        e.preventDefault(); closeNokMismatchModal(false); return;
+    }
+    if (e.ctrlKey && (e.shiftKey || e.altKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (modal.style.display === 'flex') { executeSave(); } else { openConfirmModal({preventDefault: ()=>{}}); }
+    }
 });
 
-// Init existing workers
-if (initialWorkers.length > 0) {
-    initialWorkers.forEach(w => addWorkerRow(w));
-} else {
-    addWorkerRow();
-}
+// Initialization
+(function initEdit() {
+    // 1. Nastavení typu filtry/série + natáhnutí pracoviště
+    setTyp(currentTyp);
+    const savedPracovisteId = document.getElementById('pracovisite_id').value;
+    if (savedPracovisteId) {
+        loadPracovisteData(savedPracovisteId);
+    }
 
-// Init existing prostoje
-if (initialProstoje.length > 0) {
-    initialProstoje.forEach(p => addTechRow(p));
-} else {
-    addTechRow();
-}
+    // 2. Naplnění tabulek
+    if (initialWorkers.length > 0) initialWorkers.forEach(w => addWorkerRow(w)); else addWorkerRow();
+    if (initialProstoje.length > 0) initialProstoje.forEach(p => addTechRow(p)); else addTechRow();
 
-// Init sums
-calcKs(); calcProstoje(); updateNokBadge(); updateMeta();
+    // 3. Render NOK (Už zachová existující hodnoty díky inicializačním datům)
+    renderNokGroups();
+
+    // 4. Kalkulace a render
+    calcKs(); 
+    calcProstoje(); 
+    updateNokBadge(); 
+    updateMeta();
+    //renderHourlyGrid();
+})();
+
 </script>
 
 <?php require APP_ROOT . '/includes/layout_end.php'; ?>

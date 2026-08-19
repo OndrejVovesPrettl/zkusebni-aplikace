@@ -3,6 +3,33 @@
 Tento soubor je centralni changelog projektu.
 Kazda nova verze musi mit vlastni sekci ve formatu ## vX.Y.Z.
 
+## v5.3.3 (2026-08-10)
+
+### Zmeny
+- `index.php` (sekce 02): pole `Pauza` je nyni vypocitavano dynamicky podle realneho casoveho prekryvu zaznamu s ciselnikem `prestavky`.
+- Vypocet respektuje kombinaci `Série/Filtry`, rezim smeny (8h/12h) a konkretni kod smeny (`R8/O8/N8/R12/N12`).
+- Pokud zaznam nezasahuje do zadne prestavky, hodnota `Pauza` je `0`; pri celesmennovem zaznamu je to soucet prestavek dane smeny.
+- Prepocet se provadi prubezne pri zmene typu vyroby, smeny a casu `od/do`, aby odpovidal realnemu prubehu jednotlivych zaznamu operatora.
+
+## v5.3.2 (2026-08-10)
+
+### Zmeny
+- `admin/nok_kody.php`: pridana filtrace (ID/KOD/Popis, aktivni/vse), editor pro pridani a odebrani NOK kodu a aktualizace prekladu `nok_XXX_popis`.
+- `admin/nok_kody.php`: tlacitko a panel `Prestavet z Excelu` jsou zobrazene pouze pro roli `superadmin`; backend akce je navic chranena proti primeho POST volani bez opravneni.
+- `admin/pracovnici.php`: importy (`sync_replace_workers` i `csv_import`) byly prepracovany na rezim full replace (smazani tabulky `pracovnici` a nahrani celeho souboru).
+- `admin/pracovnici.php`: doplnena deduplikace podle `interni_id` pri full-replace importu, aby nedochazelo k rollbacku celeho importu pri duplicitach ve zdroji.
+- `includes/config.php` + `index.php`: upraven ciselnik prestavek a vypocet pauzy tak, aby se pracovalo s cislovanymi pauzami z aktualni sablony a zapocitavaly se vsechny polozky.
+
+## v5.3.1 (2026-08-05)
+
+### Zmeny
+- Pridana nova administracni stranka `admin/smeny.php` pro ciselnik smen (CRUD + aktivace/deaktivace).
+- Smeny presunuty z pevneho seznamu do DB tabulky `smeny`; `index.php` nyni nacita seznam smen dynamicky.
+- `includes/config.php`: doplnena runtime inicializace ciselniku smen vcetne seed dat vychozich smen.
+- `includes/layout.php`: do menu `Sprava -> DVD` pridana polozka `Smeny`.
+- Rozsireny uzivatelsky manual (`admin/manual.php`, `MANUAL.md`) o ciselnik smen a detailni postup resetu palety v Traceability Terminalu.
+- Lokalizace: doplnen chybejici klic `manual_quick_step_7` v `lang/cs.php`; czech/ukrainian key parity sjednocena.
+
 ## v5.3 (2026-07-20)
 
 ### Zmeny

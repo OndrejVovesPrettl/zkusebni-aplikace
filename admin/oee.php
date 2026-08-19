@@ -32,34 +32,45 @@ $downtimeJoin = "LEFT JOIN (
     GROUP BY zapis_id
 ) zp ON zp.zapis_id=z.id";
 
-// DennĂ­ OEE
+// Pomocný SQL výraz pro vážené výpočty OEE přes více záznamů současně
+$oeeSqlExpr = "LEAST(1.0, GREATEST(0.0,
+    -- Dostupnost (A) = Skutečný čas běhu / Plánovaný čas provozu
+    (
+        SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0) - COALESCE(zp.dt_neplan, 0)))
+        / NULLIF(SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0))), 0)
+    )
+    *
+    -- Výkonnost (P) = Vyrobeno / Cílová výroba za skutečný čas běhu
+    (
+        SUM(z.vyrobeno_ks)
+        / NULLIF(SUM(
+            CASE 
+                WHEN z.cycle_time_min > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0) - COALESCE(zp.dt_neplan, 0)) / z.cycle_time_min
+                WHEN z.norma_ks > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0) - COALESCE(zp.dt_neplan, 0)) * z.norma_ks
+                ELSE 0
+            END
+        ), 0)
+    )
+    *
+    -- Kvalita (Q) = Dobré ks / Vyrobené ks
+    (
+        SUM(GREATEST(0, z.vyrobeno_ks - z.nok_ks))
+        / NULLIF(SUM(z.vyrobeno_ks), 0)
+    )
+)) * 100";
+
 // Denní OEE
 $denni = db_all("SELECT z.datum,
-    ROUND(
-        LEAST(100.0,
-            COALESCE(
-                SUM((z.vyrobeno_ks - z.nok_ks) * COALESCE(z.cycle_time_min, 1 / NULLIF(z.norma_ks, 0))) 
-                / NULLIF(SUM(z.cisty_cas_min - COALESCE(zp.dt_plan, 0)), 0)
-            , 0) * 100
-        )
-    , 2) AS oee_avg,
+    ROUND(COALESCE($oeeSqlExpr, 0), 2) AS oee_avg,
     COUNT(*) cnt, SUM(z.vyrobeno_ks) vyrobeno, SUM(z.nok_ks) nok
-    FROM zapisy z $w
+    FROM zapisy z $downtimeJoin $w
     GROUP BY z.datum ORDER BY z.datum", $params);
 
 // OEE dle pracoviště
-// OEE dle pracoviště
 $pracData = db_all("SELECT z.nazev_dilu, z.kod_pracovisite,
-    ROUND(
-        LEAST(100.0,
-            COALESCE(
-                SUM((z.vyrobeno_ks - z.nok_ks) * COALESCE(z.cycle_time_min, 1 / NULLIF(z.norma_ks, 0))) 
-                / NULLIF(SUM(z.cisty_cas_min - COALESCE(zp.dt_plan, 0)), 0)
-            , 0) * 100
-        )
-    , 1) AS oee_avg,
+    ROUND(COALESCE($oeeSqlExpr, 0), 1) AS oee_avg,
     COUNT(*) cnt, SUM(z.vyrobeno_ks) vyrobeno
-    FROM zapisy z $w AND z.kod_pracovisite IS NOT NULL
+    FROM zapisy z $downtimeJoin $w AND z.kod_pracovisite IS NOT NULL
     GROUP BY z.kod_pracovisite, z.nazev_dilu ORDER BY oee_avg DESC LIMIT 20", $params);
 
 // Prostoje souhrn
@@ -73,7 +84,7 @@ $prostoje = db_row("SELECT
     SUM(COALESCE(zp.dt_total,0)) celkem
     FROM zapisy z $downtimeJoin $w", $params);
 
-// Prostoje dle pracoviĹˇtÄ›
+// Prostoje dle pracoviště
 $prostojePrac = db_all("SELECT z.kod_pracovisite, z.nazev_dilu,
     SUM(COALESCE(zp.dt_tech,0)) tech, SUM(COALESCE(zp.dt_vyr,0)) vyr,
     SUM(COALESCE(zp.dt_kval,0)) kval, SUM(COALESCE(zp.dt_log,0)) log,
@@ -83,7 +94,7 @@ $prostojePrac = db_all("SELECT z.kod_pracovisite, z.nazev_dilu,
     GROUP BY z.kod_pracovisite, z.nazev_dilu
     ORDER BY celkem DESC LIMIT 20", $params);
 
-// Top NOK kĂłdy
+// Top NOK kódy
 $topNok = db_all("SELECT nk.kod, nk.popis, SUM(zn.pocet) total
     FROM zapis_nok zn JOIN nok_kody nk ON nk.id=zn.nok_kod_id
     JOIN zapisy z ON z.id=zn.zapis_id $w GROUP BY nk.id ORDER BY total DESC LIMIT 10", $params);
@@ -100,14 +111,7 @@ if (empty($topNok)) {
 
 // Celkové stats
 $stat = db_row("SELECT COUNT(*) cnt, SUM(z.vyrobeno_ks) vyr, SUM(z.nok_ks) nok,
-    ROUND(
-        LEAST(100.0,
-            COALESCE(
-                SUM((z.vyrobeno_ks - z.nok_ks) * COALESCE(z.cycle_time_min, 1 / NULLIF(z.norma_ks, 0))) 
-                / NULLIF(SUM(z.cisty_cas_min - COALESCE(zp.dt_plan, 0)), 0)
-            , 0) * 100
-        )
-    , 2) AS oee_avg,
+    ROUND(COALESCE($oeeSqlExpr, 0), 2) AS oee_avg,
     SUM(COALESCE(zp.dt_total,0)) prostoj
     FROM zapisy z $downtimeJoin $w", $params);
 

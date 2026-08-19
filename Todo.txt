@@ -1,2 +1,24 @@
-Prostoje vydělit od samostatné tabulky porovnavat s id ze zaznamy, v zaznamy vyčistit vše ohledně prostojů > new tabulka
+Poslední zálohování 29.7.2026
 
+
+
+Uni. heslo
+sgchsqcyywmbhgys
+
+
+Tohle hledat v tento počítač
+\\LB100069
+
+Co bych chtěl ještě upravit
+ -> Hodinové sledování jen pro hodiny, kdy je zaměstnanec ve firmě
+ -> K posouzení jsou všechny díly, které mají chybu začínající číslovkou 7 
+ -> výroba - Tech, Blok, TNZ (speciální tabulka, která bude držet počet a spec okna pro ně) 
+ -> Prostoje - zjednodušit jen na čas prostoje
+ -> 
+ 
+
+Co je nutné opravit
+ -> V Editoru, pokud přepnu na určité datum například 1.1.2026, a pak zadám pracovníka a pak ho zase vymažu, 
+    tak mi to vyhodí chybu.
+ -> Jméno, pokud ho nedodám do jméno ručně, tak se nepropíše. 
+ -> 

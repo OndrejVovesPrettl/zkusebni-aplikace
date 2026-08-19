@@ -31,7 +31,7 @@ define('TRACEABILITY_LOCAL_DB', getenv('TRACEABILITY_LOCAL_DB') ?: ($localSecret
 
 // ── Aplikace ──────────────────────────────────────────────────
 define('APP_NAME', 'DVD Production Tracking');
-define('APP_VERSION', '5.3.0');
+define('APP_VERSION', '5.3.3');
 define('APP_ROOT', dirname(__DIR__));
 define('APP_URL', 'http://10.67.100.69/pisek/v5.3');
 
@@ -145,7 +145,7 @@ function t(string $key): string {
 }
 
 function isPisekTestInstance(): bool {
-    return str_contains(strtolower((string)APP_URL), '/pisek/v3.4');
+    return str_contains(strtolower((string)APP_URL), '/pisek/v5.3');
 }
 
 function pageTitlePrefix(): string {
@@ -2088,6 +2088,115 @@ function getSmenyList(bool $onlyActive = true): array {
     ensureSmenyTable();
     $where = $onlyActive ? 'WHERE aktivni=1' : '';
     return db_all("SELECT * FROM smeny $where ORDER BY poradi, kod");
+}
+
+function getDefaultPrestavkySeed(): array {
+    $zona1 = 'Série';
+    $zona2 = 'Filtry';
+    $nazvy = [
+        1 => 'Pauza 1',
+        2 => 'Pauza 2',
+        3 => 'Pauza 3',
+        4 => 'Pauza 4',
+    ];
+
+    return [
+        // Série - 8h
+        [$zona1, 8, 'R8',  $nazvy[1], '08:30', '08:40', 10, 1],
+        [$zona1, 8, 'R8',  $nazvy[2], '10:45', '11:15', 30, 2],
+        [$zona1, 8, 'R8',  $nazvy[3], '13:55', '14:00', 5, 3],
+        [$zona1, 8, 'O8',  $nazvy[1], '17:30', '18:00', 30, 1],
+        [$zona1, 8, 'O8',  $nazvy[2], '19:30', '19:40', 10, 2],
+        [$zona1, 8, 'O8',  $nazvy[3], '21:55', '22:00', 5, 3],
+        [$zona1, 8, 'N8',  $nazvy[1], '01:30', '02:00', 30, 1],
+        [$zona1, 8, 'N8',  $nazvy[2], '03:30', '03:40', 10, 2],
+        [$zona1, 8, 'N8',  $nazvy[3], '05:55', '06:00', 5, 3],
+
+        // Série - 12h
+        [$zona1, 12, 'R12', $nazvy[1], '08:30', '08:40', 10, 1],
+        [$zona1, 12, 'R12', $nazvy[2], '10:45', '11:15', 30, 2],
+        [$zona1, 12, 'R12', $nazvy[3], '15:00', '15:15', 15, 3],
+        [$zona1, 12, 'R12', $nazvy[4], '17:55', '18:00', 5, 4],
+        [$zona1, 12, 'N12', $nazvy[1], '22:00', '22:30', 30, 1],
+        [$zona1, 12, 'N12', $nazvy[2], '01:00', '01:15', 15, 2],
+        [$zona1, 12, 'N12', $nazvy[3], '03:30', '03:40', 10, 3],
+        [$zona1, 12, 'N12', $nazvy[4], '05:55', '06:00', 5, 4],
+
+        // Filtry - 8h
+        [$zona2, 8, 'R8',  $nazvy[1], '08:40', '08:50', 10, 1],
+        [$zona2, 8, 'R8',  $nazvy[2], '11:15', '11:45', 30, 2],
+        [$zona2, 8, 'R8',  $nazvy[3], '13:55', '14:00', 5, 3],
+        [$zona2, 8, 'O8',  $nazvy[1], '17:00', '17:30', 30, 1],
+        [$zona2, 8, 'O8',  $nazvy[2], '19:40', '19:50', 10, 2],
+        [$zona2, 8, 'O8',  $nazvy[3], '21:55', '22:00', 5, 3],
+        [$zona2, 8, 'N8',  $nazvy[1], '01:00', '01:30', 30, 1],
+        [$zona2, 8, 'N8',  $nazvy[2], '03:40', '03:50', 10, 2],
+        [$zona2, 8, 'N8',  $nazvy[3], '05:55', '06:00', 5, 3],
+
+        // Filtry - 12h
+        [$zona2, 12, 'R12', $nazvy[1], '08:40', '08:50', 10, 1],
+        [$zona2, 12, 'R12', $nazvy[2], '11:15', '11:45', 30, 2],
+        [$zona2, 12, 'R12', $nazvy[3], '15:00', '15:15', 15, 3],
+        [$zona2, 12, 'R12', $nazvy[4], '17:55', '18:00', 5, 4],
+        [$zona2, 12, 'N12', $nazvy[1], '22:00', '22:30', 30, 1],
+        [$zona2, 12, 'N12', $nazvy[2], '01:00', '01:15', 15, 2],
+        [$zona2, 12, 'N12', $nazvy[3], '03:30', '03:40', 10, 3],
+        [$zona2, 12, 'N12', $nazvy[4], '05:55', '06:00', 5, 4],
+    ];
+}
+
+function ensurePrestavkyTable(): void {
+    static $done = false;
+    if ($done) return;
+    $done = true;
+
+    $pdo = db();
+    $pdo->exec("CREATE TABLE IF NOT EXISTS prestavky (
+        id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        zona            VARCHAR(160) NOT NULL,
+        rezim_hod       TINYINT UNSIGNED NOT NULL DEFAULT 8,
+        smena_kod       VARCHAR(10) NOT NULL,
+        nazev           VARCHAR(80) NOT NULL,
+        cas_od          TIME NOT NULL,
+        cas_do          TIME NOT NULL,
+        trvani_min      SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+        poradi          TINYINT UNSIGNED NOT NULL DEFAULT 1,
+        aktivni         TINYINT(1) NOT NULL DEFAULT 1,
+        UNIQUE KEY uq_prestavky_slot (zona, rezim_hod, smena_kod, poradi)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $cnt = (int)$pdo->query("SELECT COUNT(*) FROM prestavky")->fetchColumn();
+    if ($cnt === 0) {
+        $stmt = $pdo->prepare("INSERT IGNORE INTO prestavky
+            (zona, rezim_hod, smena_kod, nazev, cas_od, cas_do, trvani_min, poradi, aktivni)
+            VALUES (?,?,?,?,?,?,?,?,1)");
+        foreach (getDefaultPrestavkySeed() as $r) {
+            $stmt->execute($r);
+        }
+    }
+}
+
+   
+    // Ensure default slots are also aligned for already-populated tables.
+    /*
+    $ins = $pdo->prepare("INSERT INTO prestavky
+        (zona, rezim_hod, smena_kod, nazev, cas_od, cas_do, trvani_min, poradi, aktivni)
+        VALUES (?,?,?,?,?,?,?,?,1)
+        ON DUPLICATE KEY UPDATE
+            nazev=VALUES(nazev),
+            cas_od=VALUES(cas_od),
+            cas_do=VALUES(cas_do),
+            trvani_min=VALUES(trvani_min),
+            aktivni=1");
+    foreach (getDefaultPrestavkySeed() as $r) {
+        $ins->execute($r);
+    }
+}*/
+
+function getPrestavkyList(bool $onlyActive = true): array {
+    ensurePrestavkyTable();
+    $where = $onlyActive ? 'WHERE aktivni=1' : '';
+    return db_all("SELECT * FROM prestavky $where ORDER BY zona, rezim_hod, smena_kod, poradi");
 }
 
 function getProstojTypyList(): array {

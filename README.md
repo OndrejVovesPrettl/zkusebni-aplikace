@@ -1,4 +1,4 @@
-# DVD Sledování výroby v5.3 - Instalační a provozní příručka
+# DVD Sledování výroby v5.3.3 - Instalační a provozní příručka
 
 ## Struktura projektu
 
@@ -46,7 +46,7 @@ dvd/                                ← Složka aplikace (URL dle APP_URL)
 │   └── pracovisite.php             ← JSON API pro data pracoviště
 │
 ├── includes/
-    ├── config.php                  ← Bootstrap + DB + helpery (APP_VERSION 5.3.0)
+    ├── config.php                  ← Bootstrap + DB + helpery (APP_VERSION 5.3.3)
 │   ├── config.local.php.example    ← Lokální konfigurace
 │   ├── import_runtime.php          ← Sdílené mapování/import helpery
 │   ├── import_excel.py             ← Parser Excel/CSV
@@ -78,6 +78,31 @@ dvd/                                ← Složka aplikace (URL dle APP_URL)
 ├── uploads/tmp/                    ← Locky + runtime state soubory (logy a tmp data negitovat)
 └── backupSQL/                      ← Lokální SQL zálohy mimo git
 ```
+
+## Co je nové ve v5.3.3
+
+- Sekce 02 ve formuláři (`index.php`) počítá pole `Pauza` dynamicky podle reálného časového překryvu záznamu s číselníkem `prestavky`.
+- Výpočet je vázaný na typ výroby (`Série/Filtry`), režim směny (8h/12h) a konkrétní kód směny.
+- Při částečném záznamu směny se započítají jen přestávky, které časově skutečně nastaly; bez překryvu je hodnota `0`.
+
+## Co je nové ve v5.3.2
+
+- NOK editor (`admin/nok_kody.php`) rozsireny o filtraci a editor pridani/odebrani kodu.
+- Panel `Prestavet z Excelu` je viditelny pouze pro `superadmin` a backend akce je autorizacne chranena.
+- Import pracovniku (`admin/pracovnici.php`) funguje jako full replace + deduplikace podle `interni_id`.
+- Ciselnik prestavek a vypocet pauzy byly sladene na aktualni sablonu cislovanych pauz.
+
+## Co je nové ve v5.3.1
+
+### Číselník směn (Správa -> DVD)
+- **Nová administrace směn**: Přidána stránka `admin/smeny.php` pro správu směn (CRUD + aktivace/deaktivace).
+- **Databázový model**: Směny jsou ukládány v tabulce `smeny` (kód, název, časy, pracovní doba, pauza, pořadí, aktivita).
+- **Runtime bootstrap**: `includes/config.php` zajišťuje automatické vytvoření tabulky a seed výchozích směn při prvním použití.
+- **Hlavní formulář**: Výběr směny v `index.php` je nyní dynamicky načítán z DB číselníku.
+
+### Manuál a lokalizace
+- **Uživatelský manuál**: Rozšířena část Traceability Terminál (detailnější postup resetu palety) a doplněn číselník směn.
+- **Lokalizace**: Sjednoceny klíče mezi jazykovými soubory (doplněn chybějící `manual_quick_step_7` v `lang/cs.php`).
 
 ## Co je nové ve v5.3
 

@@ -12,5 +12,5 @@ schema_current.sql
 create_zapis_table.sql
 deploy_v5.1.5.ps1
 deploy_v515.ps1
-
+backup10082026.sql
 strukturamenu.txt

@@ -1,5 +1,51 @@
 # Release Notes
 
+## v5.3.3 (2026-08-10)
+
+### Dynamicke prestavky v hlavnim formulari
+- `index.php` sekce 02 (`Pauza`) byla prepracovana na dynamicky vypocet dle casoveho prekryvu.
+- Logika bere data z ciselniku `prestavky` a filtruje je podle:
+   - typu vyroby (`Série` / `Filtry`),
+   - rezimu smeny (`8h` / `12h`),
+   - konkretniho kodu smeny (`R8/O8/N8/R12/N12`).
+- Operativni zapisy na vice pracovistich v ramci smeny nyni dostavaji jen ty prestavky, na ktere casove vznikl narok.
+- Pri neexistujicim prekryvu je hodnota `Pauza` automaticky `0`.
+
+## v5.3.2 (2026-08-10)
+
+### NOK editor (Sprava -> DVD)
+- `admin/nok_kody.php`: doplnena filtrace seznamu NOK (ID/KOD/Popis, aktivni/vcetne neaktivnich).
+- Pridana moznost pridat novy NOK kod a odebrat kod z aktivnich zaznamu primo v editoru.
+- Pri pridani kodu se aktualizuje i prekladovy klic `nok_XXX_popis`.
+
+### Role-based viditelnost Excel rebuildu
+- Tlacitko `Prestavet z Excelu` a cely jeho panel jsou viditelne jen pro roli `superadmin`.
+- Backend akce `rebuild_from_excel` ma navic explicitni autorizačni kontrolu a vraci `403` bez opravneni.
+
+### Import pracovniku
+- `admin/pracovnici.php`: oba importni toky (`sync_replace_workers`, `csv_import`) fungují v rezimu full replace.
+- Import pred vlozenim smaze tabulku `pracovnici` a nahraje obsah zdrojoveho souboru.
+- Pridana deduplikace podle `interni_id`, aby import nespadl na unikátním indexu pri duplicitach ve vstupu.
+
+### Ciselnik prestavek a vypocet pauz
+- Ciselnik prestavek byl sjednocen na cislovane polozky `Pauza 1..N` podle aktualni importni sablony.
+- `index.php`: vyhodnoceni pauzy nyni zapocitava vsechny polozky z ciselniku bez vyjimek.
+
+## v5.3.1 (2026-08-05)
+
+### Číselník směn (Správa -> DVD)
+- **Nová stránka `admin/smeny.php`**: Přidána kompletní správa směn (vytvoření, editace, smazání, aktivace/deaktivace).
+- **DB-first přístup**: Výběr směn je přesunut z pevného seznamu do tabulky `smeny`.
+- **Automatická inicializace**: `includes/config.php` při prvním běhu zajistí vytvoření tabulky a vložení výchozích směn.
+
+### Integrace do formuláře a navigace
+- **`index.php`**: Pole Směna používá dynamický seznam z DB, včetně výchozích časů a parametrů směny.
+- **`includes/layout.php`**: Do sekce Správa -> DVD přidána položka menu **Směny**.
+
+### Manuál a i18n
+- **`admin/manual.php` + `MANUAL.md`**: Doplněn popis číselníku směn a rozšířené kroky pro Traceability Terminál (ResetPalety).
+- **Jazykové soubory**: Doplněn chybějící český klíč `manual_quick_step_7`; klíče `cs` a `uk` jsou nyní v parity.
+
 ## v5.3 (2026-07-20)
 
 ### Vylepšený výběr Pracovišť a Pracovníků

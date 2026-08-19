@@ -162,6 +162,7 @@ echo $role === 'superadmin' ? t('role_display_superadmin') :
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/pracovisite.php" class="<?= $activePage==='pracovisite'?'active':'' ?>"><i class="bi bi-building"></i><?= t('nav_pracovisite') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/pracovnici.php" class="<?= $activePage==='pracovnici'?'active':'' ?>"><i class="bi bi-people"></i><?= t('nav_workers') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/smeny.php" class="<?= $activePage==='smeny'?'active':'' ?>"><i class="bi bi-clock"></i><?= t('nav_smeny') ?></a></div>
+<div class="nav-item"><a href="<?= $baseUrl ?>/admin/prestavky.php" class="<?= $activePage==='prestavky'?'active':'' ?>"><i class="bi bi-cup-hot"></i><?= t('nav_prestavky') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/nok_kody.php" class="<?= $activePage==='nok'?'active':'' ?>"><i class="bi bi-x-octagon"></i><?= t('nav_nok') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/prostoj_typy.php" class="<?= $activePage==='prostoj_typy'?'active':'' ?>"><i class="bi bi-tools"></i><?= t('nav_prostoje') ?></a></div>
 <?php endif; ?>

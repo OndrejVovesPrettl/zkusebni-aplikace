@@ -32,5 +32,8 @@ Operátor má roli `read`. Při vytváření účtu se do pole Heslo zadá čís
 ## Co dělá příkaz ResetPalety na traceability terminálu?
 Příkaz naskenovaný čtečkou (nebo tlačítko) uloží kompletní log aktuální palety na síťový disk, vytiskne štítek (u projektů s tiskem) a vynuluje počítadlo kusů. Po resetu lze pokračovat ve skenování nové palety.
 
+## Kde najdu správu směn?
+V menu otevřete Správa → DVD → Směny. Stránka `admin/smeny.php` umožňuje přidávat, upravovat, deaktivovat i mazat směny. Změny se ihned promítnou do výběru směny v hlavním formuláři.
+
 ## Jak změním jazyk na traceability terminálu?
 Naskenujte příkaz `en`, `cz` nebo `ua` přímo čtečkou. Jazyk se přepne okamžitě bez nutnosti klikat na UI.

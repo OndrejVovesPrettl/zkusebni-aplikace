@@ -5,6 +5,7 @@ requireRole('superadmin');
 $pageTitle  = t('nav_pracovisite');
 $activePage = 'pracovisite';
 $msg = '';
+$errorMsg = '';
 $showAll = get('show', '') === 'all';
 $fSearch = trim((string)get('search', ''));
 $fTyp = get('typ', '');
@@ -13,23 +14,7 @@ if ($fActive === '') {
     $fActive = 'all';
 }
 
-// ── Smazání ──────────────────────────────────────────────────
-if (get('action') === 'delete' && get('id')) {
-    $id = (int)get('id');
-    $row = db_row('SELECT nazev_dilu FROM pracovisite WHERE id=?', [$id]);
-    db()->prepare('UPDATE pracovisite SET aktivni=0 WHERE id=?')->execute([$id]);
-    logAction(
-        'PRACOVISITE_DELETE',
-        'pracovisite',
-        $id,
-        ['aktivni' => 1],
-        ['aktivni' => 0],
-        "Smazáno: " . ($row['nazev_dilu'] ?? '—')
-    );
-    redirect(APP_URL . '/admin/pracovisite.php?ok=1');
-}
-
-// ── Přepnutí aktivního stavu ─────────────────────────────────
+// ── Přepnutí aktivního stavu (Místo mazání) ──────────────────
 if (get('action') === 'toggle_active' && get('id')) {
     $id = (int)get('id');
     $row = db_row('SELECT aktivni, nazev_dilu FROM pracovisite WHERE id=?', [$id]);
@@ -49,9 +34,13 @@ if (get('action') === 'toggle_active' && get('id')) {
     redirect(APP_URL . '/admin/pracovisite.php?ok=1');
 }
 
+// Proměnná pro uchování dat formuláře v případě chyby
+$edit = null;
+
 // ── Uložení formuláře ────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
     if (!verifyCsrfToken(post('_csrf'))) { http_response_code(403); die('CSRF'); }
+    
     $data = [
         post('cislo_id'), post('zakaznik'), post('projekt'), post('verze'),
         post('kod_pracovisite'), post('nazev_pracovisite'), post('nazev_dilu'),
@@ -62,42 +51,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
         post('typ'), post('poznamka') ?: null,
     ];
     $id = (int)post('id');
-    if ($id) {
-        $oldRow = db_row('SELECT * FROM pracovisite WHERE id=?', [$id]);
-        db()->prepare('UPDATE pracovisite SET cislo_id=?,zakaznik=?,projekt=?,verze=?,kod_pracovisite=?,nazev_pracovisite=?,nazev_dilu=?,sap_cislo=?,nakladove_stredisko=?,oznaceni=?,produktivita=?,norma_ks_min=?,cyklus_min=?,typ=?,poznamka=? WHERE id=?')
-            ->execute([...$data, $id]);
+    
+    try {
+        if ($id) {
+            $oldRow = db_row('SELECT * FROM pracovisite WHERE id=?', [$id]);
+            db()->prepare('UPDATE pracovisite SET cislo_id=?,zakaznik=?,projekt=?,verze=?,kod_pracovisite=?,nazev_pracovisite=?,nazev_dilu=?,sap_cislo=?,nakladove_stredisko=?,oznaceni=?,produktivita=?,norma_ks_min=?,cyklus_min=?,typ=?,poznamka=? WHERE id=?')
+                ->execute([...$data, $id]);
+            
+            $newData = [
+                'cislo_id' => $data[0], 'zakaznik' => $data[1], 'projekt' => $data[2],
+                'verze' => $data[3], 'kod_pracovisite' => $data[4], 'nazev_pracovisite' => $data[5],
+                'nazev_dilu' => $data[6], 'sap_cislo' => $data[7], 'nakladove_stredisko' => $data[8],
+                'oznaceni' => $data[9], 'produktivita' => $data[10], 'norma_ks_min' => $data[11],
+                'cyklus_min' => $data[12], 'typ' => $data[13], 'poznamka' => $data[14]
+            ];
+            $changes = diffData($oldRow, $newData);
+            
+            logAction(
+                'PRACOVISITE_UPDATE',
+                'pracovisite',
+                $id,
+                $oldRow,
+                $changes,
+                "Aktualizováno: {$newData['nazev_dilu']}"
+            );
+        } else {
+            db()->prepare('INSERT INTO pracovisite (cislo_id,zakaznik,projekt,verze,kod_pracovisite,nazev_pracovisite,nazev_dilu,sap_cislo,nakladove_stredisko,oznaceni,produktivita,norma_ks_min,cyklus_min,typ,poznamka) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+                ->execute($data);
+            
+            logAction(
+                'PRACOVISITE_CREATE',
+                'pracovisite',
+                db()->lastInsertId(),
+                null,
+                ['cislo_id' => $data[0], 'nazev_dilu' => $data[6]],
+                "Nové pracoviště: {$data[6]}"
+            );
+        }
+        redirect(APP_URL . '/admin/pracovisite.php?ok=1');
         
-        $newData = [
-            'cislo_id' => $data[0], 'zakaznik' => $data[1], 'projekt' => $data[2],
-            'verze' => $data[3], 'kod_pracovisite' => $data[4], 'nazev_pracovisite' => $data[5],
-            'nazev_dilu' => $data[6], 'sap_cislo' => $data[7], 'nakladove_stredisko' => $data[8],
-            'oznaceni' => $data[9], 'produktivita' => $data[10], 'norma_ks_min' => $data[11],
-            'cyklus_min' => $data[12], 'typ' => $data[13], 'poznamka' => $data[14]
+    } catch (PDOException $e) {
+        // Zachycení chyby duplicitního klíče (kód 23000)
+        if ($e->getCode() == 23000) {
+            $errorMsg = "Chyba: Pracoviště s tímto ID číslem (" . h(post('cislo_id')) . ") již existuje! Zvolte prosím jiné.";
+        } else {
+            $errorMsg = "Chyba databáze: " . $e->getMessage();
+        }
+        // Udržíme data ve formuláři, aby je uživatel nemusel psát znovu
+        $edit = [
+            'id' => $id, 'cislo_id' => post('cislo_id'), 'zakaznik' => post('zakaznik'), 'projekt' => post('projekt'),
+            'verze' => post('verze'), 'kod_pracovisite' => post('kod_pracovisite'), 'nazev_pracovisite' => post('nazev_pracovisite'),
+            'nazev_dilu' => post('nazev_dilu'), 'sap_cislo' => post('sap_cislo'), 'nakladove_stredisko' => post('nakladove_stredisko'),
+            'oznaceni' => post('oznaceni'), 'produktivita' => post('produktivita'), 'norma_ks_min' => post('norma_ks_min'),
+            'cyklus_min' => post('cyklus_min'), 'typ' => post('typ'), 'poznamka' => post('poznamka')
         ];
-        $changes = diffData($oldRow, $newData);
-        
-        logAction(
-            'PRACOVISITE_UPDATE',
-            'pracovisite',
-            $id,
-            $oldRow,
-            $changes,
-            "Aktualizováno: {$newData['nazev_dilu']}"
-        );
-    } else {
-        db()->prepare('INSERT INTO pracovisite (cislo_id,zakaznik,projekt,verze,kod_pracovisite,nazev_pracovisite,nazev_dilu,sap_cislo,nakladove_stredisko,oznaceni,produktivita,norma_ks_min,cyklus_min,typ,poznamka) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-            ->execute($data);
-        
-        logAction(
-            'PRACOVISITE_CREATE',
-            'pracovisite',
-            db()->lastInsertId(),
-            null,
-            ['cislo_id' => $data[0], 'nazev_dilu' => $data[6]],
-            "Nové pracoviště: {$data[6]}"
-        );
     }
-    redirect(APP_URL . '/admin/pracovisite.php?ok=1');
 }
 
 // ── CSV import ────────────────────────────────────────────────
@@ -138,9 +146,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'csv_import') {
     }
 }
 
-// ── Editace ───────────────────────────────────────────────────
-$edit = null;
-if (get('edit')) $edit = db_row('SELECT * FROM pracovisite WHERE id=?', [(int)get('edit')]);
+// ── Editace (načtení, pokud nebylo naplněno chybou výše) ──────
+if ($edit === null && get('edit')) {
+    $edit = db_row('SELECT * FROM pracovisite WHERE id=?', [(int)get('edit')]);
+}
 
 $where = [];
 $params = [];
@@ -164,6 +173,21 @@ $whereSql = empty($where) ? '1=1' : implode(' AND ', $where);
 $list = db_all('SELECT * FROM pracovisite WHERE ' . $whereSql . ' ORDER BY id', $params);
 require APP_ROOT . '/includes/layout.php';
 ?>
+
+<style>
+/* Přidané styly pro typ "Obě" (Ostatní by se měly načítat z hlavní CSS šablony) */
+.badge-obe {
+    background-color: #f3e8ff;
+    color: #7e22ce;
+    border: 1px solid #d8b4fe;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-block;
+}
+</style>
+
 <div class="topbar">
     <div class="d-flex align-items-center gap-3">
         <button class="btn-icon d-md-none" id="sidebar-toggle"><i class="bi bi-list fs-5"></i></button>
@@ -177,6 +201,7 @@ require APP_ROOT . '/includes/layout.php';
 <div class="content">
 <?php if (get('ok')): ?><div class="alert mb-3" style="background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:var(--success);border-radius:8px;padding:.65rem 1rem;font-size:.82rem">✓ <?= t('saved') ?></div><?php endif; ?>
 <?php if ($msg): ?><div class="alert mb-3" style="background:rgba(0,229,176,.1);border:1px solid rgba(0,229,176,.25);color:var(--accent);border-radius:8px;padding:.65rem 1rem;font-size:.82rem"><?= h($msg) ?></div><?php endif; ?>
+<?php if ($errorMsg): ?><div class="alert mb-3" style="background:rgba(220,53,69,.12);border:1px solid rgba(220,53,69,.3);color:#dc3545;border-radius:8px;padding:.65rem 1rem;font-size:.82rem">⚠ <?= h($errorMsg) ?></div><?php endif; ?>
 
 <div class="row mb-3 no-print">
     <div class="col-12">
@@ -237,7 +262,7 @@ require APP_ROOT . '/includes/layout.php';
 
 <!-- Formulář přidat/editovat -->
 <?php if ($edit !== null): 
-    $isNew = $edit === false || get('edit')==='new'; 
+    $isNew = (empty($edit['id']) || get('edit') === 'new'); 
     $e = $edit ?: [];
 ?>
 <div class="card-dvd mb-4">
@@ -307,7 +332,7 @@ require APP_ROOT . '/includes/layout.php';
         <td><?= h($p['nazev_dilu']) ?><?php if (!$p['aktivni'] && str_contains((string)($p['poznamka'] ?? ''), 'Sloučeno do pracoviště ID')): ?><br><small class="text-muted-dvd"><?= h($p['poznamka']) ?></small><?php endif; ?></td>
         <td class="mono" style="font-size:.72rem"><?= h($p['sap_cislo']) ?></td>
         <td class="mono" style="font-size:.72rem"><?= $p['nakladove_stredisko'] ?></td>
-        <td><span class="badge-<?= $p['typ'] ?>"><?= $p['typ'] ?></span></td>
+        <td><span class="badge-<?= $p['typ'] ?>"><?= $p['typ'] === 'obe' ? t('type_both') : $p['typ'] ?></span></td>
         <td class="mono" style="font-size:.72rem"><?= $p['norma_ks_min'] ? number_format($p['norma_ks_min'],4) : '—' ?></td>
         <td>
             <?php $nextActive = $p['aktivni'] ? 'ne' : 'ano'; ?>
@@ -323,7 +348,7 @@ require APP_ROOT . '/includes/layout.php';
         </td>
         <td>
             <a href="?edit=<?= $p['id'] ?>" class="btn-icon" title="<?= t('edit') ?>"><i class="bi bi-pencil"></i></a>
-            <a href="?action=delete&id=<?= $p['id'] ?>" class="btn-icon danger" data-confirm="<?= t('confirm_delete') ?>" title="<?= t('delete') ?>"><i class="bi bi-trash3"></i></a>
+            <!-- Ikonka koše smazána, pro správu historie stačí přepínač stavu Active -->
         </td>
     </tr>
     <?php endforeach; ?>

@@ -48,14 +48,19 @@ if ($fOeeMin!=='') { $where[] = 'z.oee_procent >= :oeemin'; $params[':oeemin'] =
 $wSQL = 'WHERE '.implode(' AND ', $where);
 
 $downtimeJoin = "LEFT JOIN (
-    SELECT zapis_id, SUM(minuty) AS dt_total
+    SELECT zapis_id,
+        SUM(CASE WHEN kategorie='plan' THEN minuty ELSE 0 END) AS dt_plan,
+        SUM(CASE WHEN kategorie IN ('tech','vyr','kval','log','ost') THEN minuty ELSE 0 END) AS dt_neplan,
+        SUM(minuty) AS dt_total
     FROM zapisy_prostoje
     GROUP BY zapis_id
 ) zp ON zp.zapis_id=z.id";
 
+// Odstraněn z.k_posouzeni, ponechány z.tech, z.blok, z.tnz pro export
 $sql = "SELECT z.id,z.typ,z.datum,z.cw,z.rok,z.smena,z.jmeno,z.pracovni_pozice,
-               z.vyrobeno_ks,z.nok_ks,z.vyrobeno_dobre_ks,z.k_posouzeni,
-           z.cisty_cas_min,z.oee_procent,COALESCE(zp.dt_total,0) AS prostoj_celkem_min,
+               z.vyrobeno_ks,z.nok_ks,z.vyrobeno_dobre_ks,
+               z.tech,z.blok,z.tnz,
+               z.cisty_cas_min,z.oee_procent,COALESCE(zp.dt_total,0) AS prostoj_celkem_min,
                z.kod_pracovisite,z.nazev_pracovisite,z.nazev_dilu,
                z.zakaznik,z.projekt,z.zapsal
         FROM zapisy z
@@ -65,13 +70,36 @@ $sql = "SELECT z.id,z.typ,z.datum,z.cw,z.rok,z.smena,z.jmeno,z.pracovni_pozice,
 
 $rows = db_all($sql, $params);
 
+// Pomocný SQL výraz pro vážené OEE přes vyfiltrované záznamy
+$oeeSqlExpr = "LEAST(1.0, GREATEST(0.0,
+    -- Dostupnost (A)
+    (
+        SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0) - COALESCE(zp.dt_neplan, 0)))
+        / NULLIF(SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0))), 0)
+    )
+    *
+    -- Výkonnost (P)
+    (
+        SUM(z.vyrobeno_ks)
+        / NULLIF(SUM(
+            CASE 
+                WHEN z.cycle_time_min > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0) - COALESCE(zp.dt_neplan, 0)) / z.cycle_time_min
+                WHEN z.norma_ks > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(zp.dt_plan, 0) - COALESCE(zp.dt_neplan, 0)) * z.norma_ks
+                ELSE 0
+            END
+        ), 0)
+    )
+    *
+    -- Kvalita (Q)
+    (
+        SUM(GREATEST(0, z.vyrobeno_ks - z.nok_ks))
+        / NULLIF(SUM(z.vyrobeno_ks), 0)
+    )
+)) * 100";
+
 // ── Statistiky ───────────────────────────────────────────────
 $stat = db_row("SELECT COUNT(*) cnt, SUM(z.vyrobeno_ks) vyr, SUM(z.nok_ks) nok,
-    ROUND(
-        COALESCE(
-            (SUM(z.cisty_cas_min) / NULLIF(SUM(z.pracovni_doba_min), 0)) * (SUM(z.vyrobeno_ks) / NULLIF(SUM(z.norma_ks), 0)) * ((SUM(z.vyrobeno_ks) - SUM(z.nok_ks)) / NULLIF(SUM(z.vyrobeno_ks), 0))
-        , 0) * 100
-    , 2) oee_avg,
+    ROUND(COALESCE($oeeSqlExpr, 0), 2) AS oee_avg,
     SUM(COALESCE(zp.dt_total,0)) prostoj
     FROM zapisy z
     $downtimeJoin
@@ -169,8 +197,6 @@ require APP_ROOT . '/includes/layout.php';
                 <?php foreach ($pracovisteList as $p): ?><option value="<?= $p['id'] ?>" <?=$fPrac==$p['id']?'selected':''?>>[<?= $p['cislo_id'] ?>] <?= h($p['nazev_dilu']) ?></option><?php endforeach; ?>
             </select></div>
         <div class="col-6 col-md-2"><label class="form-label-dvd"><?= t('pracovnik') ?></label><input type="search" name="jmeno" class="form-control" value="<?= h($fJmeno) ?>" placeholder="<?= t('worker_namep') ?>" list="worker-list" autocomplete="off"></div>
-        <div class="col-4 col-md-1"><label class="form-label-dvd"><?= t('cw') ?></label><input type="number" name="cw" class="form-control" min="1" max="53" value="<?= h($fCw) ?>" placeholder="—"></div>
-        <div class="col-4 col-md-1"><label class="form-label-dvd"><?= t('year') ?></label><input type="number" name="rok" class="form-control" min="2020" value="<?= h($fRok) ?>" placeholder="—"></div>
         <div class="col-4 col-md-1"><label class="form-label-dvd"><?= t('oee_min_filter') ?></label><input type="number" name="oee_min" class="form-control" min="0" max="100" value="<?= h($fOeeMin) ?>" placeholder="—"></div>
         <div class="col-auto d-flex gap-2 mt-1">
             <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-funnel me-1"></i><?= t('filter') ?></button>

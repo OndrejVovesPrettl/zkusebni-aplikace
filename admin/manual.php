@@ -216,6 +216,7 @@ if (canAdmin() || hasRole('serizovac_admin')) {
         $managementItems[] = ['label' => t('nav_pracovisite'), 'url' => $baseUrl . '/admin/pracovisite.php', 'desc' => t('manual_desc_pracovisite')];
         $managementItems[] = ['label' => t('nav_workers'), 'url' => $baseUrl . '/admin/pracovnici.php', 'desc' => t('manual_desc_workers_manage')];
         $managementItems[] = ['label' => t('nav_smeny'), 'url' => $baseUrl . '/admin/smeny.php', 'desc' => t('manual_desc_smeny')];
+        $managementItems[] = ['label' => t('nav_prestavky'), 'url' => $baseUrl . '/admin/prestavky.php', 'desc' => t('manual_desc_prestavky')];
         $managementItems[] = ['label' => t('nav_nok'), 'url' => $baseUrl . '/admin/nok_kody.php', 'desc' => t('manual_desc_nok')];
         $managementItems[] = ['label' => t('nav_prostoje'), 'url' => $baseUrl . '/admin/prostoj_typy.php', 'desc' => t('manual_desc_prostoje')];
     }

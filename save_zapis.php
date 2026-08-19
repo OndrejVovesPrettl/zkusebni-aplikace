@@ -80,8 +80,16 @@ try {
 
     $vyrobeno  = max(0,(int)post('vyrobeno_ks',0));
     $nokKs     = max(0,(int)post('nok_ks',0));
-    $kPos      = max(0,(int)post('k_posouzeni',0));
-    $dobre     = max(0,$vyrobeno - $nokKs);
+    $kPos      = max(0,(int)post('k_posouzeni',0)); // Zůstává pro kompatibilitu
+    
+    // Nové číselné hodnoty z inputů (místo checkboxů)
+    $techKs    = max(0,(int)post('tech',0));
+    $blokKs    = max(0,(int)post('blok',0));
+    $tnzKs     = max(0,(int)post('tnz',0));
+    
+    // Vyrobeno dobře: Odečteme vadné kusy a odebrané kusy, aby hodnota odpovídala realitě na sklad
+    $dobre     = max(0, $vyrobeno - $nokKs - $techKs - $blokKs - $tnzKs);
+    
     $pracDoba  = post('pracovni_doba_min')!=='' ? (int)post('pracovni_doba_min') : null;
     $pauza     = max(0,(int)post('pauza_min',0));
     $prestas   = max(0,(int)post('prestas_min',0));
@@ -134,36 +142,38 @@ try {
     // OEE výpočet
     $oeeA = $oeeP = $oeeQ = $oeeTotal = null;
     $normaKs = $pw['norma_ks_min'] ?? null;
-    $cyclMin = $pw['cyklus_min'] ?? null;
+    $cyclMin = $pw['cyklus_min']   ?? null;
 
-    if ($cistyCas > 0 && $pracDoba > 0) {
-        // Pojistka – čistý čas je vždy pracovní doba bez pauzy
-        $cisty = max(0, $pracDoba - $pauza);
+    if ($pracDoba !== null && $pracDoba > 0) {
+        $pauzaVal     = max(0, $pauza);
+        $cistyVal     = $cistyCas !== null ? $cistyCas : max(0, $pracDoba - $pauzaVal);
         
-        // Založeno na stejné logice jako opravený JavaScript
-        $planovanyCasVyroby = max(1, $cisty - $prostPlan);
-        $operacniCas = max(0, $cisty - $prostCelk);
+        // 1. Plánovaný čas provozu = Pracovní doba - Pauza - Plánované prostoje
+        $planovanyCas = max(0, $pracDoba - $pauzaVal - $prostPlan);
+        
+        // 2. Skutečný čas běhu (provozní čas) = Plánovaný čas - Neplánované prostoje
+        $provozniCas  = max(0, $planovanyCas - $prostNepl);
 
-        // 1. DOSTUPNOST
-        $oeeA = $operacniCas / $planovanyCasVyroby;
-
-        // 2. VÝKON
-        if ($cyclMin > 0 && $operacniCas > 0) {
-            $oeeP = $vyrobeno / ($operacniCas / $cyclMin);
-        } elseif ($operacniCas == 0) {
-            $oeeP = 0;
+        // A) Dostupnost = Skutečný čas běhu / Plánovaný čas provozu
+        if ($planovanyCas > 0) {
+            $oeeA = min(1.0, max(0.0, $provozniCas / $planovanyCas));
         }
 
-        // 3. KVALITA
+        // B) Výkonnost = Vyrobené ks / (Skutečný čas běhu / Cyklus)
+        if ($cyclMin > 0 && $provozniCas > 0) {
+            $oeeP = min(1.5, max(0.0, $vyrobeno / ($provozniCas / $cyclMin)));
+        } elseif ($provozniCas == 0 && $vyrobeno > 0) {
+            $oeeP = 0.0;
+        }
+
+        // C) Kvalita = Dobré ks / Vyrobené ks (Zde se záměrně neodečítá Tech/Blok/TNZ)
         if ($vyrobeno > 0) {
-            $oeeQ = ($vyrobeno - $nokKs) / $vyrobeno;
-        } else {
-            $oeeQ = 0;
+            $oeeQ = min(1.0, max(0.0, ($vyrobeno - $nokKs) / $vyrobeno));
         }
 
-        // OEE CELKEM (zastropováno max na 100%)
+        // D) Celkové OEE
         if ($oeeA !== null && $oeeP !== null && $oeeQ !== null) {
-            $oeeTotal = min(1.0, $oeeA * $oeeP * $oeeQ);
+            $oeeTotal = min(1.0, max(0.0, $oeeA * $oeeP * $oeeQ));
         }
     }
 
@@ -254,7 +264,10 @@ try {
         ':vyr'=>$vyrobeno,':nok'=>$nokKs,':pos'=>$kPos,':dobre'=>$dobre,':cisty'=>$cistyCas,
         ':oee_a'=>$oeeA,':oee_p'=>$oeeP,':oee_q'=>$oeeQ,':oee'=>$oeeTotal,
         ':norma'=>$normaKs,':cycle'=>$cyclMin,
-        ':tech'=>post('tech')?1:0,':blok'=>post('blok')?1:0,':tnz'=>post('tnz')?1:0,
+        
+        // Zde propisujeme plnohodnotná čísla!
+        ':tech'=>$techKs,':blok'=>$blokKs,':tnz'=>$tnzKs,
+        
         ':pozn'=>post('poznamky')?:null,
         ':zapsal'=>post('zapsal')?:null,
         ':pozn_zap'=>post('poznamka_zapisujiciho')?:null,
