@@ -135,7 +135,7 @@ require APP_ROOT . '/includes/layout.php';
         <span class="topbar-meta" id="header-meta"></span>
     </div>
     <div class="d-flex align-items-center gap-2 no-print" style="justify-content:flex-end;flex-wrap:wrap">
-        <button onclick="window.print()" class="btn-outline" style="padding:.38rem .9rem;font-size:.78rem;white-space:nowrap"><i class="bi bi-printer me-1"></i><?= t('print') ?></button>
+        <button type="button" onclick="pripravTiskA4()" class="btn-outline" style="padding:.38rem .9rem;font-size:.78rem;white-space:nowrap"><i class="bi bi-printer me-1"></i><?= t('print') ?></button>
         <a href="admin/zaznamy.php" class="btn-outline" style="padding:.38rem .9rem;font-size:.78rem;white-space:nowrap"><i class="bi bi-table me-1"></i><?= t('records_btn') ?></a>
         <?php if (isLoggedIn()): ?>
         <a href="admin/logout.php" class="btn-outline" style="padding:.38rem .9rem;font-size:.78rem;white-space:nowrap"><i class="bi bi-box-arrow-left me-1"></i><?= t('nav_logout') ?></a>
@@ -498,7 +498,271 @@ require APP_ROOT . '/includes/layout.php';
         </div>
     </div>
 </div>
+<!-- ====== TISKOVÁ ŠABLONA START ====== -->
+<style>
+@media print {
+    /* Skryje celou aplikaci při tisku */
+    .topbar, .content > *:not(#tisk-sekce), #toast-area, .type-switch, #confirm-modal {
+        display: none !important;
+    }
+    body {
+        background: white !important;
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif, monospace; /* Font co nejblíže Excelu */
+    }
+    /* Zobrazí jen tiskovou sekci */
+    #tisk-sekce {
+        display: block !important;
+        width: 100%;
+        color: black;
+    }
+    /* Nastavení stránky na A4 */
+    @page {
+        size: A4 portrait;
+        margin: 10mm;
+    }
+    .tisk-strana {
+        page-break-after: always; /* Vynutí zalomení na novou stranu */
+        width: 100%;
+    }
+    .tisk-strana:last-child {
+        page-break-after: auto;
+    }
+    /* Základní styly pro excelovské tabulky */
+    .tisk-tabulka {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 8px;
+        font-size: 10pt;
+    }
+    .tisk-tabulka th, .tisk-tabulka td {
+        border: 2px solid black; /* Tlustší čáry jako v Excelu */
+        padding: 4px;
+        text-align: center;
+        vertical-align: middle;
+    }
+    .tisk-text-left { text-align: left !important; }
+    .tisk-bold { font-weight: bold; }
+    .tisk-seda { background-color: #d9d9d9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+/* Skryje tiskovou šablonu na normální obrazovce PC */
+@media screen {
+    #tisk-sekce {
+        display: none;
+    }
+}
+</style>
 
+<div id="tisk-sekce">
+   <!-- STRANA 1 -->
+    <div class="tisk-strana" id="tisk-strana-1">
+        
+        <!-- HLAVIČKA -->
+        <table class="tisk-tabulka">
+            <tr>
+                <td rowspan="2" style="width:30%; color:#d32f2f; font-size:24pt; font-weight:900; letter-spacing:1px; text-align:center; vertical-align:middle;">PRETTL<br><span style="font-size:10pt; color:#555; letter-spacing:0px;">automotive</span></td>
+                <td class="tisk-seda tisk-bold" style="font-size:16pt; width:70%;">Proces</td>
+            </tr>
+            <tr>
+                <td class="tisk-bold" style="font-size:20pt; text-transform:uppercase; height:50px;">Sledování výroby</td>
+            </tr>
+            <tr>
+                <td class="tisk-seda tisk-bold" style="font-size:14pt; height:40px;">ID pracoviště</td>
+                <td class="tisk-bold" style="font-size:24pt; background-color:#f2f2f2;" id="tisk-id-pracoviste"></td>
+            </tr>
+        </table>
+
+        <!-- PROJEKT -->
+        <table class="tisk-tabulka">
+            <tr class="tisk-seda tisk-bold" style="height:28px;">
+                <td style="width:20%">Zákazník</td>
+                <td style="width:20%">Název projektu</td>
+                <td style="width:20%">AFO, Pracoviště</td>
+                <td style="width:20%">Název dílu</td>
+                <td style="width:20%">SAP číslo dílu</td>
+            </tr>
+            <tr class="tisk-bold" style="font-size:13pt; height:45px;">
+                <td id="tisk-zakaznik"></td>
+                <td id="tisk-projekt"></td>
+                <td id="tisk-afo"></td>
+                <td id="tisk-dil"></td>
+                <td id="tisk-sap"></td>
+            </tr>
+        </table>
+
+        <!-- PRACOVNÍK A SMĚNA (Nová nerozdělená struktura podle obrázku) -->
+        <table class="tisk-tabulka">
+            <tr>
+                <td class="tisk-seda" style="width:22%; height:25px;">příjmení:</td>
+                <td class="tisk-seda" style="width:24%;">datum příchodu na směnu</td>
+                <td class="tisk-seda" style="width:10%;">směna:</td>
+                <td class="tisk-bold" style="width:28%; padding:0;">
+                    <div style="display:flex; justify-content:space-around; align-items:center; font-size:16pt;">
+                        <span>R 8</span><span>O 8</span><span>N 8</span>
+                    </div>
+                </td>
+                <td class="tisk-bold" style="width:16%; padding:0;">
+                    <div style="display:flex; justify-content:space-around; align-items:center; font-size:16pt;">
+                        <span>R 12</span><span>N 12</span>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <td rowspan="3"></td> <!-- Jméno (velká prázdná kolonka) -->
+                <td style="height:28px;"></td> <!-- Datum -->
+                <td class="tisk-seda" rowspan="3">norma ks</td>
+                <td rowspan="3" id="tisk-normy-8h" style="padding: 5px 0;">
+                    <!-- JS sem vloží 3 hodnoty normy vedle sebe -->
+                </td>
+                <td rowspan="3" id="tisk-normy-12h" style="padding: 5px 0;">
+                    <!-- JS sem vloží 2 hodnoty normy vedle sebe -->
+                </td>
+            </tr>
+            <tr>
+                <td class="tisk-seda" style="height:25px;">
+                    <div style="display:flex; justify-content:space-around; align-items:center;">
+                        <span>čas OD</span><span>čas DO</span>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <td style="height:28px;"></td> <!-- Čas (velká prázdná kolonka) -->
+            </tr>
+        </table>
+
+        <!-- TABULKY VAD A VÝSLEDKŮ -->
+        <div style="display: flex; gap: 10px; align-items: stretch; margin-top: 15px;">
+            <div style="width: 50%; display: flex; flex-direction: column; justify-content: space-between;">
+                <table class="tisk-tabulka" style="margin-bottom:15px;">
+                    <thead>
+                        <tr class="tisk-seda"><th style="width:15%; height:28px;">kód vady</th><th>POPIS VADY</th><th style="width:25%">CELKEM NOK</th></tr>
+                    </thead>
+                    <tbody id="tisk-nok-levy"></tbody>
+                </table>
+                <table class="tisk-tabulka" style="margin-bottom:0;">
+                     <tr><td class="tisk-bold tisk-text-left" style="width:50%; height:35px; font-size:12pt; padding-left:10px;">OK ks:</td><td></td></tr>
+                     <tr><td class="tisk-bold tisk-text-left" style="height:35px; font-size:12pt; padding-left:10px;">NOK ks:</td><td></td></tr>
+                     <tr><td class="tisk-bold tisk-text-left" style="height:35px; font-size:12pt; padding-left:10px;">Celkem vyrobeno:</td><td></td></tr>
+                </table>
+            </div>
+            
+            <div style="width: 50%; display: flex; flex-direction: column; justify-content: space-between;">
+                <table class="tisk-tabulka" style="margin-bottom:15px;">
+                    <thead>
+                        <tr class="tisk-seda"><th style="width:15%; height:28px;">kód vady</th><th>POPIS VADY</th><th style="width:25%">CELKEM NOK</th></tr>
+                    </thead>
+                    <tbody id="tisk-nok-pravy"></tbody>
+                </table>
+                <table class="tisk-tabulka" style="margin-bottom:0;">
+                    <tr><td class="tisk-bold" style="width:15%; height:35px; font-size:12pt;">Tech</td><td class="tisk-text-left" style="font-size:11pt; padding-left:10px;">Technologie</td><td style="width:25%"></td></tr>
+                    <tr><td class="tisk-bold" style="height:35px; font-size:12pt;">Blok</td><td class="tisk-text-left" style="font-size:11pt; padding-left:10px;">Blokace</td><td></td></tr>
+                    <tr><td class="tisk-bold" style="height:35px; font-size:12pt;">TNZ</td><td class="tisk-text-left" style="font-size:11pt; padding-left:10px;">TNZ</td><td></td></tr>
+                </table>
+            </div>
+        </div>
+
+    </div>
+    <!-- STRANA 2 (Hodinové sledování) -->
+    <div class="tisk-strana" id="tisk-strana-2">
+    
+    <div class="tisk-bold" style="font-size:16pt; text-align:center; margin: 15px 0 10px 0;">Hodinové sledování výroby</div>
+    
+    <!-- PROJEKT ZNOVU -->
+    <table class="tisk-tabulka">
+        <tr class="tisk-seda tisk-bold" style="font-size:10pt; height:28px;">
+            <td style="width:20%">Zákazník</td>
+            <td style="width:20%">Název projektu</td>
+            <td style="width:20%">AFO, Pracoviště</td>
+            <td style="width:20%">Název dílu</td>
+            <td style="width:20%">SAP číslo dílu</td>
+        </tr>
+        <tr class="tisk-bold" style="font-size:12pt; height:45px;">
+            <td id="tisk-zakaznik2"></td>
+            <td id="tisk-projekt2"></td>
+            <td id="tisk-afo2"></td>
+            <td id="tisk-dil2"></td>
+            <td id="tisk-sap2"></td>
+        </tr>
+    </table>
+
+    <!-- HODINY (Výrazně zvětšené kolonky na psaní) -->
+    <div style="display:flex; gap:10px; margin-top:15px;">
+        <table class="tisk-tabulka" style="width:50%">
+            <tr class="tisk-seda"><th style="height:30px;">hodina</th><th>KÓD PROSTOJE, popis, počet min</th></tr>
+            <tr><td class="tisk-bold" style="height:62px;">6 - 7</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">7 - 8</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">8 - 9</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">9 - 10</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">10 - 11</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">11 - 12</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">12 - 13</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">13 - 14</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">14 - 15</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">15 - 16</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">16 - 17</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">17 - 18</td><td></td></tr>
+        </table>
+
+        <table class="tisk-tabulka" style="width:50%">
+            <tr class="tisk-seda"><th style="height:30px;">hodina</th><th>KÓD PROSTOJE, popis, počet min</th></tr>
+            <tr><td class="tisk-bold" style="height:62px;">18 - 19</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">19 - 20</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">20 - 21</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">21 - 22</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">22 - 23</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">23 - 24</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">24 - 1</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">1 - 2</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">2 - 3</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">3 - 4</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">4 - 5</td><td></td></tr>
+            <tr><td class="tisk-bold" style="height:62px;">5 - 6</td><td></td></tr>
+        </table>
+    </div>
+    
+    <!-- SLOVNÍČEK PROSTOJŮ -->
+    <div style="display: flex; gap: 10px; margin-top: 15px;">
+        <table class="tisk-tabulka" style="width: 50%; font-size: 7.5pt;">
+            <tr><td colspan="9" class="tisk-seda tisk-bold" style="font-size:9.5pt; height:25px;">Neplánované prostoje</td></tr>
+            <tr class="tisk-bold tisk-seda"><td>Q1</td><td>Q2</td><td>Q4</td><td>V1</td><td>V2</td><td>V3</td><td>L1</td><td>L2</td><td>O1</td></tr>
+            <tr style="vertical-align: top; height:45px;">
+                <td>nekvalitní vstupní materiál</td>
+                <td>změna laku/požadavek Q</td>
+                <td>uvolnění výroby</td>
+                <td>chybí pracovník</td>
+                <td>chybějící materiál - výroba</td>
+                <td>seřízení linky</td>
+                <td>chybějící materiál - sklad</td>
+                <td>čekání na materiál (manipulant)</td>
+                <td>ostatní</td>
+            </tr>
+        </table>
+        <table class="tisk-tabulka" style="width: 50%; font-size: 7.5pt;">
+            <tr><td colspan="9" class="tisk-seda tisk-bold" style="font-size:9.5pt; height:25px;">Plánované prostoje</td></tr>
+            <tr class="tisk-bold tisk-seda"><td>P1</td><td>P2</td><td>P3</td><td>P4</td><td>P5</td><td>P6</td><td>P7</td><td>P8</td><td>P9</td></tr>
+            <tr style="vertical-align: top; height:45px;">
+                <td>změna verze, formy</td>
+                <td>rozjezd linky, natápění</td>
+                <td>vzorování, DUMMY</td>
+                <td>čištění, údržba, výměna el.</td>
+                <td>schůzky, školení</td>
+                <td>školitel (učitel)</td>
+                <td>zaškolovaný (žák)</td>
+                <td>změna pracoviště</td>
+                <td>inventura</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- POZNÁMKY -->
+    <div style="border: 2px solid black; padding: 10px; height: 70px; margin-top: 10px;">
+        <div class="tisk-bold" style="font-size: 11pt; color: #444;">Poznámky:</div>
+    </div>
+
+</div>
+</div>
+<!-- ====== TISKOVÁ ŠABLONA END ====== -->
 </div><!-- content -->
 <div id="toast-area"></div>
 
@@ -1175,8 +1439,8 @@ function addWorkerRow(data = {}) {
                 <input type="hidden" name="workers[${index}][pracovnik_id]" value="">
             </div>
             <div class="col-12 col-lg-4">
-                <label class="form-label-dvd"><?= t('or_manually') ?></label>
-                <input type="text" name="workers[${index}][jmeno_rucne]" class="form-control" placeholder="<?= h(t('placeholder_name')) ?>" value="${escapeHtml(data.jmeno_rucne || '')}">
+                <label class="form-label-dvd"><?= t('or_manually') ?> <span class="req">*</span></label>
+                <input type="text" name="workers[${index}][jmeno_rucne]" class="form-control" placeholder="<?= h(t('placeholder_name')) ?>" value="${escapeHtml(data.jmeno_rucne || '')}" required>
             </div>
             <div class="col-8 col-lg-3">
                 <label class="form-label-dvd"><?= t('pracovni_pozice') ?></label>
@@ -1493,16 +1757,47 @@ const modal = document.getElementById('confirm-modal');
 async function openConfirmModal(e) {
     e.preventDefault();
     
-    // Validace povinných polí
+    // 1. Validace povinných polí - Pracoviště a Datum
     const pracoviste = document.getElementById('pracovisite_id').value;
     const datum = document.getElementById('input-datum').value;
+    
     if (!pracoviste || !datum) {
         showToast('error', window.LANG_TEXT.error_required_fields);
         document.getElementById('sec-ident').scrollIntoView({behavior:'smooth'});
         return;
     }
 
-    // NOVÉ: Kontrola, zda prostoje nejsou mimo směnu
+    // 2. Validace povinného pole - Pracovník (nebo ručně)
+    let workersValid = true;
+    document.querySelectorAll('input[name$="[jmeno_rucne]"]').forEach(input => {
+        if (!input.value.trim()) {
+            workersValid = false;
+            input.style.borderColor = 'var(--accent2)'; // červené orámování při chybě
+        } else {
+            input.style.borderColor = ''; // vrácení původní barvy
+        }
+    });
+
+    if (!workersValid) {
+        showToast('error', 'Vyplňte prosím jméno pracovníka (nebo jej vyberte ze seznamu).');
+        document.getElementById('workers-list').scrollIntoView({behavior:'smooth', block:'center'});
+        return;
+    }
+
+    // 3. Validace pole - Vyrobeno ks (nesmí být 0 nebo prázdné)
+    const vyrobenoInput = document.getElementById('vyrobeno');
+    const vyrobenoVal = parseInt(vyrobenoInput.value, 10) || 0;
+    
+    if (vyrobenoVal <= 0) {
+        showToast('error', 'Zadejte prosím vyrobené kusy (hodnota musí být větší než 0).');
+        vyrobenoInput.style.borderColor = 'var(--accent2)'; // červené orámování při chybě
+        document.getElementById('sec-vyroba').scrollIntoView({behavior:'smooth', block:'center'});
+        return;
+    } else {
+        vyrobenoInput.style.borderColor = ''; // vrácení původní barvy
+    }
+
+    // 4. Kontrola, zda prostoje nejsou mimo směnu
     const dtCheck = validateAllDowntimes();
     if (!dtCheck.allValid) {
         const { shiftOd, shiftDo } = getCurrentShiftBounds();
@@ -1514,10 +1809,12 @@ async function openConfirmModal(e) {
     if (!await validateNokConsistencyBeforeSubmit()) {
         return;
     }
+    
+    // Pokud je vše v pořádku, zobrazí se modal
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
 }
-
+openConfirmModal
 function closeConfirmModal() {
     modal.style.display = 'none';
     document.body.style.overflow = '';
@@ -1705,6 +2002,116 @@ setTyp('serie');
 
 // Při startu vygenerovat hodiny
 renderHourlyGrid();
+
+// ===== TISK A4 FUNKCE START =====
+function pripravTiskA4() {
+    const getText = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return '';
+        const txt = el.textContent.trim();
+        return txt === '—' ? '' : txt;
+    };
+
+    const zakaznik = getText('disp-zakaznik');
+    const projekt = getText('disp-projekt');
+    const afo = getText('disp-afo');
+    const dil = getText('disp-dil');
+    const sap = getText('disp-sap');
+    
+    // Získání velkého ID
+    let pracId = '';
+    const searchInput = document.getElementById('pracovisite_search');
+    if (searchInput && searchInput.value) {
+        const match = searchInput.value.match(/^\[(\d+)\]/);
+        if (match) pracId = match[1];
+    }
+    
+    // Zapsání textů
+    document.getElementById('tisk-id-pracoviste').textContent = pracId;
+    document.getElementById('tisk-zakaznik').textContent = zakaznik;
+    document.getElementById('tisk-projekt').textContent = projekt;
+    document.getElementById('tisk-afo').textContent = afo;
+    document.getElementById('tisk-dil').textContent = dil;
+    document.getElementById('tisk-sap').textContent = sap;
+
+    document.getElementById('tisk-zakaznik2').textContent = zakaznik;
+    document.getElementById('tisk-projekt2').textContent = projekt;
+    document.getElementById('tisk-afo2').textContent = afo;
+    document.getElementById('tisk-dil2').textContent = dil;
+    document.getElementById('tisk-sap2').textContent = sap;
+
+    // VÝPOČET A ZÁPIS NOREM (Sloučené bloky)
+    const normaText = getText('d-norma');
+    const normaCislo = parseFloat(normaText.replace(',', '.'));
+    
+    const calcNorm = (minuty) => {
+        if (!isNaN(normaCislo) && normaCislo > 0) {
+            const vypocet = Math.round(normaCislo * minuty);
+            return `<div style="text-align:center;"><span style="font-size:12pt; font-weight:bold;">${vypocet}</span><br><span style="font-size:8pt; font-weight:normal; color:#444;">${minuty} min</span></div>`;
+        } else {
+            return `<div style="text-align:center;"><span style="font-size:12pt; font-weight:bold;">&nbsp;</span><br><span style="font-size:8pt; font-weight:normal; color:#444;">${minuty} min</span></div>`;
+        }
+    };
+
+    const n8h = document.getElementById('tisk-normy-8h');
+    if (n8h) {
+        n8h.innerHTML = `<div style="display:flex; justify-content:space-around; align-items:center;">
+            ${calcNorm(60)}
+            ${calcNorm(435)}
+            ${calcNorm(480)}
+        </div>`;
+    }
+
+    const n12h = document.getElementById('tisk-normy-12h');
+    if (n12h) {
+        n12h.innerHTML = `<div style="display:flex; justify-content:space-around; align-items:center;">
+            ${calcNorm(660)}
+            ${calcNorm(720)}
+        </div>`;
+    }
+
+    // VYČTENÍ A ROZDĚLENÍ VAD
+    const nokItems = Array.from(document.querySelectorAll('#sec-nok .nok-item')).filter(el => el.style.display !== 'none');
+    const vady = [];
+    
+    nokItems.forEach(el => {
+        const kodEl = el.querySelector('.nok-code');
+        const labelEl = el.querySelector('label');
+        if (kodEl && labelEl) {
+            vady.push({
+                kod: kodEl.textContent.trim(),
+                popis: labelEl.textContent.trim()
+            });
+        }
+    });
+
+    vady.push({ kod: '134', popis: 'ostatní' });
+
+    const half = Math.ceil(vady.length / 2);
+    const vadyLeft = vady.slice(0, half);
+    const vadyRight = vady.slice(half);
+
+    const renderRows = (arr, minRows) => {
+        let html = '';
+        for (let i = 0; i < Math.max(arr.length, minRows); i++) {
+            if (i < arr.length) {
+                html += `<tr><td class="tisk-bold" style="height:29px; font-size:11pt;">${arr[i].kod}</td><td class="tisk-text-left" style="font-size:9.5pt; padding-left:10px;">${arr[i].popis}</td><td></td></tr>`;
+            } else {
+                html += `<tr><td style="height:29px;"></td><td></td><td></td></tr>`; 
+            }
+        }
+        return html;
+    };
+
+    document.getElementById('tisk-nok-levy').innerHTML = renderRows(vadyLeft, 14);
+    document.getElementById('tisk-nok-pravy').innerHTML = renderRows(vadyRight, 14);
+
+    // TISK
+    setTimeout(() => {
+        window.print();
+    }, 150);
+}
+// ===== TISK A4 FUNKCE END =====
 
 </script>
 <?php require APP_ROOT . '/includes/layout_end.php'; ?>
