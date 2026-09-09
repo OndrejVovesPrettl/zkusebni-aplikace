@@ -49,6 +49,10 @@ function importIsFiltryByTemplate(
 }
 
 function importResolveTypByTemplate(array $row): string {
+    $vstrikovnaIds = [1, 4, 16, 19, 20, 22, 23, 24, 25, 26, 29, 34, 38, 41, 45, 48, 49, 52, 63, 69, 72, 73, 74, 75, 76, 77, 78, 79, 80, 82, 85, 86, 90, 97, 98, 99, 100, 101, 108, 109, 110, 111, 112, 113, 114, 123, 127, 133, 155, 161, 163, 171, 172, 173, 188];
+    if (in_array((int)($row[':pracovisite_cislo_id'] ?? $row[':cislo_id'] ?? 0), $vstrikovnaIds, true)) {
+        return 'vstrikovna';
+    }
     return importIsFiltryByTemplate(
         (string)($row[':projekt'] ?? ''),
         (string)($row[':kp'] ?? ''),
@@ -213,8 +217,6 @@ function importNormalizePeopleList(?string $value, int $maxLen = 150): ?string {
 }
 
 function importPrepareZapisyRow(array $row): array {
-    $row[':typ'] = importResolveTypByTemplate($row);
-
     $row[':jmeno'] = importNormalizePeopleList(isset($row[':jmeno']) ? (string)$row[':jmeno'] : null, 150);
     $row[':pozice'] = importNormalizePeopleList(isset($row[':pozice']) ? (string)$row[':pozice'] : null, 100);
 
@@ -235,6 +237,10 @@ function importPrepareZapisyRow(array $row): array {
     }
 
     $row[':prac_id'] = importResolvePracovisiteId($row);
+    $pracovisiteTyp = $row[':prac_id'] ? db_val('SELECT typ FROM pracovisite WHERE id=?', [(int)$row[':prac_id']]) : null;
+    $row[':typ'] = in_array($pracovisiteTyp, ['serie', 'filtry', 'vstrikovna'], true)
+        ? $pracovisiteTyp
+        : importResolveTypByTemplate($row);
     $row[':import_hash'] = importBuildHash($row);
     return $row;
 }

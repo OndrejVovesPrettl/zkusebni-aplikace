@@ -1,0 +1,531 @@
+﻿diff --git "a/v5.3\\admin\\nok_kody.php" "b/v3.4\\admin\\nok_kody.php"
+index d468e38..9990448 100644
+--- "a/v5.3\\admin\\nok_kody.php"
++++ "b/v3.4\\admin\\nok_kody.php"
+@@ -1,5 +1,5 @@
+ <?php
+-// admin/nok_kody.php - NOK matrix editor (STABILN├Ź VERZE)
++// admin/nok_kody.php - NOK matrix editor (s p┼Öid├ív├ín├şm, editac├ş i skr├Żv├ín├şm chyb)
+ @ini_set('max_input_vars', '10000');
+ 
+ require_once dirname(__DIR__) . '/includes/config.php';
+@@ -10,7 +10,7 @@ ensureNokKodyMatrixSchema();
+ 
+ $msg = null;
+ 
+-// 1. ULO┼ŻEN├Ź MATICE A TEXT┼«
++// 1. Ulo┼żen├ş matice
+ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
+     if (!verifyCsrfToken(post('_csrf'))) {
+         http_response_code(403);
+@@ -26,7 +26,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
+     $afoList = db_all('SELECT CAST(cislo_id AS CHAR) AS afo FROM pracovisite WHERE aktivni = 1 AND cislo_id IS NOT NULL AND cislo_id > 0 ORDER BY CAST(cislo_id AS UNSIGNED), cislo_id');
+     $afoKeys = array_map(static fn(array $r): string => trim((string)$r['afo']), $afoList);
+ 
+-    $filterActive = get('filter_active', 'active');
+     $nokRows = db_all('SELECT id, kod, popis, aktivni FROM nok_kody WHERE aktivni=1 ORDER BY id');
+ 
+     $pdo = db();
+@@ -45,23 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
+         foreach ($nokRows as $nok) {
+             $nokId = (int)$nok['id'];
+             $nokKod = (int)($nok['kod'] ?? $nokId);
+-            
+             $newText = trim((string)($postedTexts[(string)$nokId] ?? $nok['popis'] ?? ''));
+             if ($newText === '') {
+                 $newText = (string)($nok['popis'] ?? '');
+             }
+-            
+             $updText->execute([$newText, $nokId]);
+-
+-            $key1 = 'nok_' . str_pad((string)$nokKod, 3, '0', STR_PAD_LEFT) . '_popis';
+-            $key2 = 'nok_' . (string)$nokKod . '_popis';
+-            $key3 = 'nok_' . str_pad((string)$nokId, 3, '0', STR_PAD_LEFT) . '_popis';
+-            
+-            foreach (['cs', 'en', 'uk'] as $langCode) {
+-                $updTr->execute([$langCode, $key1, $newText]);
+-                $updTr->execute([$langCode, $key2, $newText]);
+-                $updTr->execute([$langCode, $key3, $newText]);
+-            }
++            $keyBase = 'nok_' . str_pad((string)$nokKod, 3, '0', STR_PAD_LEFT) . '_popis';
++            $updTr->execute(['cs', $keyBase, $newText]);
+ 
+             foreach ($afoKeys as $afo) {
+                 $val = 0;
+@@ -73,7 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
+         }
+ 
+         $pdo->commit();
+-        redirect(APP_URL . '/admin/nok_kody.php?ok=1&filter_active=' . urlencode($filterActive));
++        redirect(APP_URL . '/admin/nok_kody.php?ok=1');
+     } catch (Throwable $e) {
+         if ($pdo->inTransaction()) {
+             $pdo->rollBack();
+@@ -82,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
+     }
+ }
+ 
+-// 2. P┼śID├üN├Ź NOV├ë CHYBY
++// 2. P┼Öid├ín├ş nov├ę chyby (k├│d se apr├Ęs-dopo─Ź├şt├í automaticky jako MAX + 1)
+ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'add_nok_kod') {
+     if (!verifyCsrfToken(post('_csrf'))) {
+         http_response_code(403);
+@@ -97,43 +86,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'add_nok_kod') {
+             
+             $stmt = db()->prepare('INSERT INTO nok_kody (kod, popis, skupina, aktivni, zobrazit_default) VALUES (?, ?, "ostatni", 1, 1)');
+             $stmt->execute([$nextKod, $popis]);
+-            $newId = (int)db()->lastInsertId();
+-            
+-            $key1 = 'nok_' . str_pad((string)$nextKod, 3, '0', STR_PAD_LEFT) . '_popis';
+-            $key2 = 'nok_' . (string)$nextKod . '_popis';
+-            $key3 = 'nok_' . str_pad((string)$newId, 3, '0', STR_PAD_LEFT) . '_popis';
+             
++            $keyBase = 'nok_' . str_pad((string)$nextKod, 3, '0', STR_PAD_LEFT) . '_popis';
+             $updTr = db()->prepare('INSERT INTO translations (lang_code, `key`, `value`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `value`=VALUES(`value`), updated_at=NOW()');
+-            foreach (['cs', 'en', 'uk'] as $langCode) {
+-                $updTr->execute([$langCode, $key1, $popis]);
+-                $updTr->execute([$langCode, $key2, $popis]);
+-                $updTr->execute([$langCode, $key3, $popis]);
+-            }
++            $updTr->execute(['cs', $keyBase, $popis]);
+ 
+             redirect(APP_URL . '/admin/nok_kody.php?ok=1');
+         } catch (Throwable $e) {
+             $msg = 'Chyba p┼Öi p┼Öid├ív├ín├ş chyby: ' . $e->getMessage();
+         }
+     } else {
+-        $msg = 'Vypl┼łte pros├şm n├ízev chyby.';
++        $msg = 'Vypl┼łte pros├şm popis chyby.';
+     }
+ }
+ 
+-// 3. SKRYT├Ź / ODKRYT├Ź CHYBY
+-if (get('action') === 'toggle_nok_aktivni' && get('id')) {
++// 3. Deaktivace / skryt├ş chyby
++if (get('action') === 'deaktivovat_nok' && get('id')) {
+     if (!verifyCsrfToken(get('_csrf'))) {
+         http_response_code(403);
+         die('CSRF');
+     }
+     try {
+-        db()->prepare('UPDATE nok_kody SET aktivni = 1 - aktivni WHERE id=?')->execute([(int)get('id')]);
+-        redirect(APP_URL . '/admin/nok_kody.php?ok=1&filter_active=' . urlencode((string)get('filter_active', 'active')));
++        db()->prepare('UPDATE nok_kody SET aktivni=0 WHERE id=?')->execute([(int)get('id')]);
++        redirect(APP_URL . '/admin/nok_kody.php?ok=1');
+     } catch (Throwable $e) {
+-        $msg = 'Chyba p┼Öi zm─Ťn─Ť stavu: ' . $e->getMessage();
++        $msg = 'Chyba p┼Öi deaktivaci: ' . $e->getMessage();
+     }
+ }
+ 
+-// 4. P┼śESTAV─ÜN├Ź Z EXCELU
++// 4. P┼Öestav─Ťn├ş z Excelu
+ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'rebuild_from_excel') {
+     if (!verifyCsrfToken(post('_csrf'))) {
+         http_response_code(403);
+@@ -154,15 +135,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'rebuild_from_ex
+ 
+ $lang = $_SESSION['lang'] ?? 'cs';
+ 
+-// Zpracov├ín├ş filtru aktivn├şch / skryt├Żch
+-$filterActive = get('filter_active', 'active');
+-$whereActive = match ($filterActive) {
+-    'all' => '',
+-    'inactive' => 'WHERE n.aktivni = 0',
+-    default => 'WHERE n.aktivni = 1',
+-};
+-
+-// Na─Źten├ş dat chyb
+ $nokRows = db_all(
+     "SELECT n.id,
+             n.kod,
+@@ -172,12 +144,11 @@ $nokRows = db_all(
+                 n.popis
+             ) AS popis
+      FROM nok_kody n
+-     $whereActive
++     WHERE n.aktivni=1
+      ORDER BY n.id",
+     [$lang]
+ );
+ 
+-// Na─Źten├ş aktivn├şch pracovi┼í┼ą (sloupc┼»)
+ $afoRows = db_all('SELECT CAST(cislo_id AS CHAR) AS afo, kod_pracovisite, nazev_pracovisite, nazev_dilu, aktivni 
+                    FROM pracovisite 
+                    WHERE aktivni = 1 AND cislo_id IS NOT NULL AND cislo_id > 0 
+@@ -196,7 +167,6 @@ foreach ($afoRows as $r) {
+     ];
+ }
+ 
+-// Na─Źten├ş st├ívaj├şc├şch vazeb z matice
+ $matrixMap = [];
+ if ($afoList !== [] && $nokRows !== []) {
+     $vals = db_all('SELECT afo, nok_kod_id, zobrazit FROM nok_matrix_afo');
+@@ -207,6 +177,17 @@ if ($afoList !== [] && $nokRows !== []) {
+     }
+ }
+ 
++// V├Żpo─Źet statistik pro kontroln├ş po─Ź├ştadlo
++$totalActiveInMatrix = 0;
++foreach ($matrixMap as $nokId => $afos) {
++    foreach ($afoList as $afo) {
++        if (!empty($afos[$afo]) && (int)$afos[$afo] === 1) {
++            $totalActiveInMatrix++;
++        }
++    }
++}
++$totalDbActiveAssignments = (int)db_val('SELECT COUNT(*) FROM nok_matrix_afo WHERE zobrazit = 1');
++
+ require APP_ROOT . '/includes/layout.php';
+ ?>
+ <div class="topbar">
+@@ -220,51 +201,120 @@ require APP_ROOT . '/includes/layout.php';
+ </div>
+ 
+ <div class="content">
+-<?php if(get('ok')):?><div class="alert mb-3" style="background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:var(--success);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">Ôťô Ulo┼żeno</div><?php endif;?>
++<?php if(get('ok')):?><div class="alert mb-3" style="background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:var(--success);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">Ôťô <?= t('saved') ?></div><?php endif;?>
++<?php if(get('rebuilt')):?><div class="alert mb-3" style="background:rgba(0,229,176,.1);border:1px solid rgba(0,229,176,.25);color:var(--accent);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">Excel import prestavel ciselnik NOK i matici AFO.</div><?php endif;?>
+ <?php if(isset($msg)):?><div class="alert mb-3" style="background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.25);color:var(--accent2);border-radius:8px;padding:.6rem 1rem;font-size:.82rem;white-space:pre-wrap"><?= h($msg) ?></div><?php endif;?>
+ 
++<!-- PO─î├üTEK KONTROLN├ŹHO PO─î├ŹTADLA PRO KONTROLU ULO┼ŻEN├Ź -->
++<?php /* ?>
++<div class="card-dvd mb-3 no-print" style="background:rgba(0,229,176,.06);border:1px solid rgba(0,229,176,.25)">
++    <div class="card-body-dvd">
++        <div class="d-flex align-items-center justify-content-between mb-2">
++            <span style="font-size:.85rem;font-weight:600;color:var(--accent)"><i class="bi bi-speedometer2 me-2"></i>Kontroln├ş po─Ź├ştadlo stavu matice</span>
++            <span style="font-size:.72rem;color:var(--muted)">Pro skryt├ş sta─Ź├ş zakomentovat ozna─Źen├Ż blok v `admin/nok_kody.php`</span>
++        </div>
++        <div class="row g-2 text-center">
++            <div class="col-6 col-md-3">
++                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem">
++                    <div style="font-size:.62rem;color:var(--muted);text-transform:uppercase">Po─Źet chyb (┼ś├ídk┼»)</div>
++                    <div class="mono" style="font-size:1.15rem;font-weight:700;color:var(--text)"><?= count($nokRows) ?></div>
++                </div>
++            </div>
++            <div class="col-6 col-md-3">
++                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem">
++                    <div style="font-size:.62rem;color:var(--muted);text-transform:uppercase">Aktivn├ş procesy (Sloupce)</div>
++                    <div class="mono" style="font-size:1.15rem;font-weight:700;color:var(--text)"><?= count($afoList) ?></div>
++                </div>
++            </div>
++            <div class="col-6 col-md-3">
++                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem">
++                    <div style="font-size:.62rem;color:var(--muted);text-transform:uppercase">Za┼íkrtnut├ę vazby (┼Żiv─Ť)</div>
++                    <div class="mono" id="live-checked-counter" style="font-size:1.15rem;font-weight:700;color:var(--accent)"><?= $totalActiveInMatrix ?></div>
++                </div>
++            </div>
++            <div class="col-6 col-md-3">
++                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem">
++                    <div style="font-size:.62rem;color:var(--muted);text-transform:uppercase">Aktivn├ş vazby v DB</div>
++                    <div class="mono" style="font-size:1.15rem;font-weight:700;color:var(--accent3)"><?= $totalDbActiveAssignments ?></div>
++                </div>
++            </div>
++        </div>
++    </div>
++</div> 
++<?php */ ?>
++<!-- KONEC KONTROLN├ŹHO PO─î├ŹTADLA -->
++
+ <div class="card-dvd mb-3 no-print">
+     <div class="card-body-dvd d-flex flex-wrap align-items-center justify-content-between gap-3">
+-        
+-        <!-- Ak─Źn├ş tla─Ź├ştka vlevo (Rebuild a Add form jsou striktn─Ť odd─Ťleny) -->
+-        <div class="d-flex gap-2 align-items-center">
+-            <form method="post" style="margin:0;">
+-                <input type="hidden" name="action" value="rebuild_from_excel">
+-                <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+-                <button type="submit" class="btn-dvd btn-dvd-sm" onclick="return confirm('Prestavet NOK ciselnik i matici podle uploads/NOKy.xlsx?')">
+-                    <i class="bi bi-arrow-repeat me-1"></i>P┼Öestav─Ťt z Excelu
+-                </button>
+-            </form>
++        <form method="post" class="d-flex flex-wrap gap-2 align-items-center">
++            <input type="hidden" name="action" value="rebuild_from_excel">
++            <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
++            <button type="submit" class="btn-dvd btn-dvd-sm" onclick="return confirm('Prestavet NOK ciselnik i matici podle uploads/NOKy.xlsx?')">
++                <i class="bi bi-arrow-repeat me-1"></i>Prestavet z Excelu
++            </button>
+             <button type="button" class="btn-dvd btn-dvd-sm" onclick="openAddNokModal()">
+                 <i class="bi bi-plus-lg me-1"></i>P┼Öidat novou chybu
+             </button>
+-        </div>
++            <span style="font-size:.78rem;color:var(--muted)">Smaze puvodni NOK logiku, nastavi ID chyby jako klic a naplni AFO matici.</span>
++        </form>
+ 
+-        <!-- Filtry a hled├ín├ş vpravo -->
+         <div class="d-flex gap-2">
+-            <form method="get" style="margin:0">
+-                <select name="filter_active" class="form-select form-select-sm" onchange="this.form.submit()" style="width:170px;font-size:.78rem">
+-                    <option value="active" <?= $filterActive === 'active' ? 'selected' : '' ?>>Stav: Pouze aktivn├ş</option>
+-                    <option value="all" <?= $filterActive === 'all' ? 'selected' : '' ?>>Stav: V┼íechny chyby</option>
+-                    <option value="inactive" <?= $filterActive === 'inactive' ? 'selected' : '' ?>>Stav: Pouze skryt├ę</option>
+-                </select>
+-            </form>
+             <input type="text" id="search-afo" class="form-control form-control-sm" placeholder="Hledat proces (AFO)..." oninput="filterMatrix()" style="width:180px;font-size:.78rem">
+             <input type="text" id="search-nok" class="form-control form-control-sm" placeholder="Hledat chybu..." oninput="filterMatrix()" style="width:180px;font-size:.78rem">
+         </div>
+-
+     </div>
+ </div>
+ 
+-<!-- ========================================================================= -->
+-<!-- HLAVN├Ź FORMUL├ü┼ś MATICE -->
+-<!-- ========================================================================= -->
+ <form method="post" id="matrix-form" onsubmit="return serializeMatrixBeforeSubmit()">
+ <input type="hidden" name="action" value="save_matrix">
+ <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+ <input type="hidden" name="matrix_json" id="matrix_json" value="">
+ <input type="hidden" name="texts_json" id="texts_json" value="">
+ 
++<!-- Modal pro ├║pravu textu chyby -->
++<div id="nok-text-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
++    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:720px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
++        <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:.7rem;">
++            <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-pencil-square me-2" style="color:var(--accent)"></i>Upravit text chyby</h5>
++            <button type="button" onclick="closeNokTextModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;line-height:1;">&times;</button>
++        </div>
++        <div style="padding:1.1rem 1.3rem;display:grid;gap:.8rem;">
++            <div style="font-size:.8rem;color:var(--muted);">ID chyby: <span id="nok-text-modal-id" class="mono"></span></div>
++            <textarea id="nok-text-modal-input" class="form-control" rows="5" style="font-size:.9rem;line-height:1.45;"></textarea>
++        </div>
++        <div style="padding:1rem 1.3rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
++            <button type="button" onclick="closeNokTextModal()" class="btn-outline" style="padding:.42rem .95rem;font-size:.82rem;">Zru┼íit</button>
++            <button type="button" onclick="applyNokTextModal()" class="btn-dvd btn-dvd-sm">Pou┼ż├şt text</button>
++        </div>
++    </div>
++</div>
++
++<!-- Modal pro p┼Öid├ín├ş nov├ę chyby -->
++<div id="add-nok-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
++    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:500px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
++        <form method="post">
++            <input type="hidden" name="action" value="add_nok_kod">
++            <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
++            
++            <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
++                <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-plus-circle me-2" style="color:var(--accent)"></i>P┼Öidat novou chybu</h5>
++                <button type="button" onclick="closeAddNokModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;">&times;</button>
++            </div>
++            
++            <div style="padding:1.1rem 1.3rem;">
++                <label class="form-label-dvd" for="new_nok_popis">N├ízev chyby <span class="req">*</span></label>
++                <input type="text" name="new_nok_popis" id="new_nok_popis" class="form-control" placeholder="nap┼Ö. Po┼íkozen├Ż konektor" required autocomplete="off">
++                <small style="color:var(--muted);font-size:.72rem;display:block;margin-top:.4rem;">K├│d chyby bude automaticky p┼Öid─Ťlen syst├ęmem.</small>
++            </div>
++            
++            <div style="padding:1rem 1.3rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
++                <button type="button" onclick="closeAddNokModal()" class="btn-outline" style="padding:.42rem .95rem;font-size:.82rem;">Zru┼íit</button>
++                <button type="submit" class="btn-dvd btn-dvd-sm">Vytvo┼Öit chybu</button>
++            </div>
++        </form>
++    </div>
++</div>
++
+ <div class="tbl-wrap">
+ <div class="overflow-x" style="max-height:70vh;overflow:auto;border:1px solid var(--border);border-radius:10px;">
+ <table class="tbl" id="matrix-table" style="min-width:1300px;border-collapse:separate;border-spacing:0;">
+@@ -301,9 +351,8 @@ require APP_ROOT . '/includes/layout.php';
+     <tbody>
+         <?php foreach($nokRows as $row):
+             $id = (int)$row['id'];
+-            $isInactive = (int)$row['aktivni'] === 0;
+         ?>
+-        <tr class="nok-row <?= $isInactive ? 'opacity-50' : '' ?>" data-nok-search="<?= mb_strtolower($id . ' ' . $row['popis'], 'UTF-8') ?>">
++        <tr class="nok-row" data-nok-search="<?= mb_strtolower($id . ' ' . $row['popis'], 'UTF-8') ?>">
+             <td style="position:sticky;left:0;z-index:4;background:var(--surface2);color:var(--text);font-family:var(--mono);border-bottom:1px solid var(--border)"><?= $id ?></td>
+             <td style="position:sticky;left:90px;z-index:4;background:var(--surface2);color:var(--text);white-space:normal;border-bottom:1px solid var(--border)">
+                 <input type="hidden" class="nok-text-hidden" data-id="<?= $id ?>" id="nok_text_<?= $id ?>" value="<?= h($row['popis']) ?>">
+@@ -313,22 +362,12 @@ require APP_ROOT . '/includes/layout.php';
+                         <button type="button" class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;" onclick="openNokTextModal(<?= $id ?>)" title="Upravit text chyby">
+                             <i class="bi bi-pencil"></i>
+                         </button>
+-                        
+-                        <?php if (!$isInactive): ?>
+-                            <a href="?action=toggle_nok_aktivni&id=<?= $id ?>&filter_active=<?= urlencode($filterActive) ?>&_csrf=<?= h(generateCsrfToken()) ?>" 
+-                               class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;color:var(--warn);" 
+-                               onclick="return confirm('Opravdu chcete tuto chybu deaktivovat a skr├Żt?')" 
+-                               title="Skr├Żt / Deaktivovat chybu">
+-                                <i class="bi bi-eye-slash"></i>
+-                            </a>
+-                        <?php else: ?>
+-                            <a href="?action=toggle_nok_aktivni&id=<?= $id ?>&filter_active=<?= urlencode($filterActive) ?>&_csrf=<?= h(generateCsrfToken()) ?>" 
+-                               class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;color:var(--accent);" 
+-                               onclick="return confirm('Opravdu chcete tuto chybu znovu aktivovat?')" 
+-                               title="Znovu aktivovat / Odkr├Żt chybu">
+-                                <i class="bi bi-eye"></i>
+-                            </a>
+-                        <?php endif; ?>
++                        <a href="?action=deaktivovat_nok&id=<?= $id ?>&_csrf=<?= h(generateCsrfToken()) ?>" 
++                            class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;color:var(--warn);" 
++                            onclick="return confirm('Opravdu chcete tuto chybu deaktivovat a skr├Żt z matice i formul├í┼Ö┼»? (Historick├í data z┼»stanou zachov├ína)')" 
++                            title="Deaktivovat / Skr├Żt chybu">
++                            <i class="bi bi-eye-slash"></i>
++                        </a>
+                     </div>
+                 </div>
+             </td>
+@@ -345,93 +384,80 @@ require APP_ROOT . '/includes/layout.php';
+ </table>
+ </div>
+ <div class="tbl-footer d-flex justify-content-between align-items-center">
+-    <span><?= count($nokRows) ?> zobrazen├Żch chyb</span>
+-    <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-save me-1"></i>Ulo┼żit zm─Ťny v matici</button>
++    <span><?= count($nokRows) ?> NOK ID, <?= count($afoList) ?> AFO sloupc┼»</span>
++    <button type="submit" class="btn-dvd btn-dvd-sm" id="btn-save-matrix"><i class="bi bi-save me-1"></i><?= t('save') ?></button>
+ </div>
+ </div>
+ </form>
+-
+-<!-- ========================================================================= -->
+-<!-- MODAL PRO ├ÜPRAVU TEXTU CHYBY (Nen├ş obalen formem) -->
+-<!-- ========================================================================= -->
+-<div id="nok-text-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:720px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
+-        <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+-            <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-pencil-square me-2" style="color:var(--accent)"></i>Upravit text chyby</h5>
+-            <button type="button" onclick="closeNokTextModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;">&times;</button>
+-        </div>
+-        <div style="padding:1.1rem 1.3rem;display:grid;gap:.8rem;">
+-            <div style="font-size:.8rem;color:var(--muted);">ID chyby: <span id="nok-text-modal-id" class="mono"></span></div>
+-            <textarea id="nok-text-modal-input" class="form-control" rows="5" style="font-size:.9rem;line-height:1.45;"></textarea>
+-        </div>
+-        <div style="padding:1rem 1.3rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
+-            <button type="button" onclick="closeNokTextModal()" class="btn-outline" style="padding:.42rem .95rem;font-size:.82rem;">Zru┼íit</button>
+-            <button type="button" onclick="applyNokTextModal()" class="btn-dvd btn-dvd-sm">Potvrdit text</button>
+-        </div>
+-    </div>
+ </div>
+ 
+-<!-- ========================================================================= -->
+-<!-- MODAL PRO P┼śID├üN├Ź NOV├ë CHYBY (Samostatn├Ż form) -->
+-<!-- ========================================================================= -->
+-<div id="add-nok-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:500px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
+-        <form method="post">
+-            <input type="hidden" name="action" value="add_nok_kod">
+-            <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+-            
+-            <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+-                <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-plus-circle me-2" style="color:var(--accent)"></i>P┼Öidat novou chybu</h5>
+-                <button type="button" onclick="closeAddNokModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;">&times;</button>
+-            </div>
+-            <div style="padding:1.1rem 1.3rem;">
+-                <label class="form-label-dvd" for="new_nok_popis">N├ízev chyby <span class="req">*</span></label>
+-                <input type="text" name="new_nok_popis" id="new_nok_popis" class="form-control" placeholder="nap┼Ö. Po┼íkozen├í izolace" required autocomplete="off">
+-            </div>
+-            <div style="padding:1rem 1.3rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
+-                <button type="button" onclick="closeAddNokModal()" class="btn-outline" style="padding:.42rem .95rem;font-size:.82rem;">Zru┼íit</button>
+-                <button type="submit" class="btn-dvd btn-dvd-sm">Vytvo┼Öit chybu</button>
+-            </div>
+-        </form>
+-    </div>
+-</div>
+-
+-</div> <!-- /.content -->
+-
+ <script>
+ let activeNokTextId = null;
+ 
+-// Modal pro novou chybu
++function updateLiveCheckedCount() {
++    const count = document.querySelectorAll('.matrix-cb:checked').length;
++    const el = document.getElementById('live-checked-counter');
++    if (el) el.textContent = count.toLocaleString('cs-CZ');
++}
++
++document.getElementById('matrix-table')?.addEventListener('change', function(e) {
++    if (e.target && e.target.classList.contains('matrix-cb')) {
++        updateLiveCheckedCount();
++    }
++});
++
+ function openAddNokModal() {
+-    document.getElementById('add-nok-modal').style.display = 'flex';
+-    document.getElementById('new_nok_popis').focus();
++    const modal = document.getElementById('add-nok-modal');
++    const input = document.getElementById('new_nok_popis');
++    if (modal) {
++        modal.style.display = 'flex';
++        if (input) input.focus();
++    }
+ }
++
+ function closeAddNokModal() {
+-    document.getElementById('add-nok-modal').style.display = 'none';
++    const modal = document.getElementById('add-nok-modal');
++    if (modal) modal.style.display = 'none';
+ }
+ 
+-// Modal pro ├║pravu existuj├şc├ş chyby
+ function openNokTextModal(id) {
+     const hidden = document.getElementById('nok_text_' + id);
++    const modal = document.getElementById('nok-text-modal');
++    const input = document.getElementById('nok-text-modal-input');
++    const idLabel = document.getElementById('nok-text-modal-id');
++    if (!hidden || !modal || !input || !idLabel) return;
+     activeNokTextId = String(id);
+-    document.getElementById('nok-text-modal-id').textContent = String(id);
+-    document.getElementById('nok-text-modal-input').value = hidden.value || '';
+-    document.getElementById('nok-text-modal').style.display = 'flex';
+-    document.getElementById('nok-text-modal-input').focus();
++    idLabel.textContent = String(id);
++    input.value = hidden.value || '';
++    modal.style.display = 'flex';
++    input.focus();
++    input.select();
+ }
++
+ function closeNokTextModal() {
+-    document.getElementById('nok-text-modal').style.display = 'none';
++    const modal = document.getElementById('nok-text-modal');
++    if (modal) modal.style.display = 'none';
+     activeNokTextId = null;
+ }
++
+ function applyNokTextModal() {
+     if (!activeNokTextId) return;
+-    const inputVal = document.getElementById('nok-text-modal-input').value;
+-    document.getElementById('nok_text_' + activeNokTextId).value = inputVal;
+-    document.getElementById('nok_text_preview_' + activeNokTextId).textContent = inputVal;
++    const hidden = document.getElementById('nok_text_' + activeNokTextId);
++    const preview = document.getElementById('nok_text_preview_' + activeNokTextId);
++    const input = document.getElementById('nok-text-modal-input');
++    if (!hidden || !preview || !input) return;
++    hidden.value = input.value;
++    preview.textContent = input.value;
+     closeNokTextModal();
+ }
+ 
+-// Odesl├ín├ş JSON matice
++document.getElementById('nok-text-modal')?.addEventListener('click', function(event) {
++    if (event.target === this) {
++        closeNokTextModal();
++        closeAddNokModal();
++    }
++});
++
+ function serializeMatrixBeforeSubmit() {
+     const matrix = {};
+     const texts = {};
+@@ -455,17 +481,18 @@ function serializeMatrixBeforeSubmit() {
+     return true;
+ }
+ 
+-// Hled├ín├ş v matici
+ function filterMatrix() {
+     const qAfo = (document.getElementById('search-afo')?.value || '').toLowerCase().trim();
+     const qNok = (document.getElementById('search-nok')?.value || '').toLowerCase().trim();
+ 
+     document.querySelectorAll('.nok-row').forEach(tr => {
+         const searchStr = tr.getAttribute('data-nok-search') || '';
+-        tr.style.display = (!qNok || searchStr.includes(qNok)) ? '' : 'none';
++        const visible = !qNok || searchStr.includes(qNok);
++        tr.style.display = visible ? '' : 'none';
+     });
+ 
+-    document.querySelectorAll('.afo-col').forEach((th, index) => {
++    const headers = document.querySelectorAll('.afo-col');
++    headers.forEach((th, index) => {
+         const searchStr = th.getAttribute('data-afo-search') || '';
+         const visible = !qAfo || searchStr.includes(qAfo);
+         th.style.display = visible ? '' : 'none';

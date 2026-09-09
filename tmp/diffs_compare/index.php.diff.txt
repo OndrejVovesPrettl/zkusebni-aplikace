@@ -1,0 +1,261 @@
+﻿diff --git "a/v5.3\\index.php" "b/v3.4\\index.php"
+index 76630a8..d4d17ff 100644
+--- "a/v5.3\\index.php"
++++ "b/v3.4\\index.php"
+@@ -80,7 +80,7 @@ $pracovisteSuggest = array_map(static function (array $pw): array {
+         'ns' => (string)($pw['nakladove_stredisko'] ?? ''),
+         'norma' => $pw['norma_ks_min'] ?? '',
+         'cycle' => $pw['cyklus_min'] ?? '',
+-        'typ' => trim((string)($pw['typ'] ?? '')), // P┼Öid├ín trim pro jistotu proti mezer├ím z DB
++        'typ' => (string)($pw['typ'] ?? ''),
+         'search' => mb_strtolower(
+             implode(' ', [
+                 $label,
+@@ -282,7 +282,7 @@ require APP_ROOT . '/includes/layout.php';
+         </div>
+         <div class="col-6 col-md-2">
+             <label class="form-label-dvd"><?= t('prestas') ?></label>
+-            <input type="number" name="prestas_min" class="form-control" min="0" max="240" placeholder="0">
++            <input type="number" name="prestas_min" class="form-control" min="0" max="240" value="0">
+         </div>
+         <div class="col-6 col-md-2">
+             <label class="form-label-dvd"><?= t('cisty_cas') ?></label>
+@@ -326,26 +326,30 @@ require APP_ROOT . '/includes/layout.php';
+     </div>
+     <div class="card-body-dvd">
+     <div class="row g-3">
+-        <div class="col-6 col-md-2">
++        <div class="col-6 col-md-3">
+             <label class="form-label-dvd"><?= t('vyrobeno') ?> <span class="req">*</span></label>
+-            <input type="number" name="vyrobeno_ks" id="vyrobeno" class="form-control" min="0" placeholder="0" required onchange="calcKs();calcOEE()">
++            <input type="number" name="vyrobeno_ks" id="vyrobeno" class="form-control" min="0" value="0" required onchange="calcKs();calcOEE()">
+         </div>
+         <div class="col-6 col-md-2">
+             <label class="form-label-dvd"><?= t('nok_ks') ?></label>
+-            <input type="number" name="nok_ks" id="nokks" class="form-control" min="0" placeholder="0" onchange="calcKs();calcOEE()">
++            <input type="number" name="nok_ks" id="nokks" class="form-control" min="0" value="0" onchange="calcKs();calcOEE()">
+         </div>
+-        
+-        <?php foreach(['tech'=>t('tech_short'),'blok'=>t('blok_short'),'tnz'=>t('tnz_short')] as $k=>$l): ?>
+-        <div class="col-4 col-md-2">
+-            <label class="form-label-dvd"><?= $l ?></label>
+-            <input type="number" name="<?= $k ?>" id="<?= $k ?>" class="form-control" min="0" placeholder="0" onchange="calcKs();calcOEE()">
++        <div class="col-6 col-md-2">
++            <label class="form-label-dvd"><?= t('k_posouzeni') ?></label>
++            <input type="number" name="k_posouzeni" class="form-control" min="0" value="0">
+         </div>
+-        <?php endforeach; ?>
+-
+-        <div class="col-12 col-md-2">
++        <div class="col-6 col-md-2">
+             <label class="form-label-dvd"><?= t('vyrobeno_dobre') ?></label>
+             <div class="calc-display text-accent" id="disp-dobre">ÔÇö</div>
+         </div>
++        <div class="col-6 col-md-3">
++            <div class="d-flex gap-3 pt-4">
++                <?php foreach(['tech'=>t('tech_short'),'blok'=>t('blok_short'),'tnz'=>t('tnz_short')] as $k=>$l): ?>
++                <div class="form-check"><input class="form-check-input" type="checkbox" name="<?= $k ?>" id="chk-<?= $k ?>">
++                <label class="form-check-label" for="chk-<?= $k ?>" style="font-size:.8rem"><?= $l ?></label></div>
++                <?php endforeach; ?>
++            </div>
++        </div>
+         <div class="col-12">
+             <label class="form-label-dvd"><?= t('poznamky') ?></label>
+             <textarea name="poznamky" class="form-control" rows="2" placeholder="<?= t('notes_placeholder') ?>"></textarea>
+@@ -368,7 +372,7 @@ require APP_ROOT . '/includes/layout.php';
+         <?= h(t('sec_nok_empty_for_afo')) ?>
+     </div>
+     <input type="hidden" name="nok[134]" id="nok_134" value="0">
+-    <div class="row g-3" id="nok-groups-container"></div>
++    <div class="row g-0" id="nok-groups-container"></div>
+     </div>
+ </div>
+ 
+@@ -403,6 +407,21 @@ require APP_ROOT . '/includes/layout.php';
+     </div>
+ </div>
+ 
++<?php /* ?>
++<!-- ÔöÇÔöÇ 07 Hodinov├ę sledov├ín├ş ÔöÇÔöÇ -->
++<div class="card-dvd mb-3" id="sec-hourly">
++    <div class="card-header-dvd" data-collapsible>
++        <span class="s-num">07</span>
++        <span class="s-title"><i class="bi bi-bar-chart-steps me-2" style="color:var(--accent3)"></i><?= t('sec_hourly') ?></span>
++        <i class="bi bi-chevron-down s-toggle"></i>
++    </div>
++    <div class="card-body-dvd">
++        <!-- Dynamick├Ż kontejner pro hodiny -->
++        <div class="hourly-grid" id="hourly-container"></div>
++    </div>
++</div>
++<?php */ ?>
++
+ <!-- ÔöÇÔöÇ 08 OEE Preview ÔöÇÔöÇ -->
+ <div class="card-dvd mb-3" id="sec-oee">
+     <div class="card-header-dvd" data-collapsible>
+@@ -600,6 +619,7 @@ function renderHourlyGrid() {
+ }
+ 
+ // Clock + meta
++// Pomocn├í funkce pro p┼Öesn├Ż v├Żpo─Źet ISO t├Żdne
+ function getISOWeekNumber(dStr) {
+     if (!dStr) return '';
+     const parts = dStr.split('-').map(Number);
+@@ -651,25 +671,34 @@ function getPracovisteSuggestForTyp(typ) {
+     return pracovisteSuggest.filter(item => item.typ === typ || item.typ === 'obe');
+ }
+ 
++function renderPracovisteDatalist(list) {
++    // No-op: custom dropdown renders on input, not on typ change
++}
++
+ let pracovisteDropdownHighlight = -1;
+ 
+ function onPracovisteInput(val) {
+     const q = String(val || '').trim();
+-    // Only clear hidden id when user is actively typing
++    // Only clear hidden id when user is actively typing (not on focus with existing value)
+     const hiddenId = document.getElementById('pracovisite_id');
+     if (hiddenId && event && event.type === 'input') hiddenId.value = '';
+ 
+     if (!q) {
+-        // Zv├Ż┼íeno na 200, aby se uk├ízala i nov─Ť p┼Öidan├í pracovi┼ít─Ť na konci tabulky, kdy┼ż se jen proklik├ív├í my┼í├ş
+-        renderPracovisteDropdown(activePracovisteSuggest.slice(0, 200));
++        // Show full list on empty / focus
++        renderPracovisteDropdown(activePracovisteSuggest.slice(0, 80));
+         return;
+     }
+     
+-    // Zjednodu┼íen├ę robustn├ş vyhled├ív├ín├ş (najde jak├Żkoliv text, ─Ź├şslo, SAP, AFO v┼íude)
+-    const qNorm = q.toLocaleLowerCase('cs-CZ');
+-    const results = activePracovisteSuggest.filter(item => item.search.includes(qNorm));
++    let results;
++    const qNum = /^\d{1,3}$/.test(q) ? parseInt(q, 10) : null;
++    if (qNum !== null) {
++        results = activePracovisteSuggest.filter(item => String(item.cisloId).startsWith(q));
++    } else {
++        const qNorm = q.toLocaleLowerCase('cs-CZ');
++        results = activePracovisteSuggest.filter(item => item.search.includes(qNorm));
++    }
+ 
+-    renderPracovisteDropdown(results.slice(0, 100));
++    renderPracovisteDropdown(results.slice(0, 50));
+ }
+ 
+ function renderPracovisteDropdown(list) {
+@@ -760,9 +789,7 @@ function renderNokGroups() {
+             const id = Number(item.id || 0);
+             const kod = escapeHtml(item.kod || '');
+             const popis = escapeHtml(item.popis || '');
+-            
+-            // P┼Öid├ín style="padding-right: 3rem; padding-bottom: 0.5rem;" pro jasn├ę odd─Ťlen├ş sloupc┼» a ┼Ö├ídk┼»
+-            items.push(`<div class="nok-item col-12 col-md-6 col-xl-4" data-nok-id="${id}" style="padding-right: 3rem; padding-bottom: 0.5rem;">
++            items.push(`<div class="nok-item" data-nok-id="${id}">
+                 <span class="nok-code">${kod}</span>
+                 <label for="nok_${id}">${popis}</label>
+                 <input type="number" name="nok[${id}]" id="nok_${id}" class="form-control nok-qty" min="0" max="9999" placeholder="0" onchange="updateNokBadge()">
+@@ -774,6 +801,18 @@ function renderNokGroups() {
+     container.dataset.rendered = '1';
+ }
+ 
++function refreshPracovisteSuggestByTyp() {
++    activePracovisteSuggest = getPracovisteSuggestForTyp(currentTyp);
++    renderPracovisteDatalist(activePracovisteSuggest);
++
++    const hidden = document.getElementById('pracovisite_id');
++    const selectedId = hidden ? String(hidden.value || '') : '';
++    if (selectedId && !activePracovisteSuggest.some(item => String(item.id) === selectedId)) {
++        document.getElementById('pracovisite_search').value = '';
++        loadPracovisteData('');
++    }
++}
++
+ // Pracovi┼ít─Ť auto-fill
+ function loadPracovisteData(id) {
+     const selected = pracovisteById[String(id)];
+@@ -1027,16 +1066,9 @@ function calcCisty() {
+ }
+ 
+ function calcKs() {
+-    const v = parseInt(document.getElementById('vyrobeno').value) || 0;
+-    const n = parseInt(document.getElementById('nokks').value) || 0;
+-    const tech = parseInt(document.getElementById('tech').value) || 0;
+-    const blok = parseInt(document.getElementById('blok').value) || 0;
+-    const tnz = parseInt(document.getElementById('tnz').value) || 0;
+-    
+-    // Vyrobeno dob┼Öe: Celkem - NOK - odevzdan├ę ks (Tech, Blok, TNZ)
+-    const dobre = Math.max(0, v - n - tech - blok - tnz);
+-    
+-    document.getElementById('disp-dobre').textContent = dobre.toLocaleString('cs-CZ');
++    const v=parseInt(document.getElementById('vyrobeno').value)||0;
++    const n=parseInt(document.getElementById('nokks').value)||0;
++    document.getElementById('disp-dobre').textContent=(Math.max(0,v-n)).toLocaleString('cs-CZ');
+     updateNokBadge();
+ }
+ 
+@@ -1073,10 +1105,6 @@ function calcProstoje() {
+ function calcOEE() {
+     const vyr = parseInt(document.getElementById('vyrobeno').value) || 0;
+     const nok = parseInt(document.getElementById('nokks').value) || 0;
+-    const tech = parseInt(document.getElementById('tech').value) || 0;
+-    const blok = parseInt(document.getElementById('blok').value) || 0;
+-    const tnz = parseInt(document.getElementById('tnz').value) || 0;
+-    
+     const prac = parseInt(document.getElementById('prac-doba').value) || 0;
+     const pauza2 = parseInt(document.getElementById('pauza').value) || 0;
+     
+@@ -1094,27 +1122,26 @@ function calcOEE() {
+         const planovanyCasVyroby = Math.max(0, cisty - plan);
+         const operacniCas = Math.max(0, planovanyCasVyroby - neplanProstoje);
+         
+-        // 1. DOSTUPNOST
++        // 1. DOSTUPNOST (max 100 %)
+         if (planovanyCasVyroby > 0) {
+             A = Math.min(1.0, Math.max(0, operacniCas / planovanyCasVyroby));
+         }
+         
+-        // 2. V├ŁKON
++        // 2. V├ŁKON (max 150 %)
+         if (pwData.cycle > 0 && operacniCas > 0) {
+             P = Math.min(1.5, Math.max(0, vyr / (operacniCas / pwData.cycle)));
+         } else if (operacniCas === 0) {
+             P = 0;
+         }
+         
+-        // 3. KVALITA
+-        // Matematika zde z├ím─Ťrn─Ť neode─Ź├şt├í Tech/Blok/TNZ. Kvalitu sr├í┼ż├ş POUZE vylo┼żen─Ť vadn├ę (NOK) kusy.
++        // 3. KVALITA (max 100 %)
+         if (vyr > 0) {
+             Q = Math.min(1.0, Math.max(0, (vyr - nok) / vyr));
+         } else {
+             Q = 0;
+         }
+         
+-        // 4. OEE CELKEM
++        // 4. OEE CELKEM (max 100 %)
+         if (A !== null && P !== null && Q !== null) {
+             OEE = Math.min(1.0, Math.max(0, A * P * Q));
+         }
+@@ -1139,14 +1166,10 @@ function calcOEE() {
+     
+     const sl = document.getElementById('summary-lines');
+     const row = (l, v, c) => `<div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:.12rem 0"><span style="color:var(--muted)">${l}</span><span class="mono" style="font-weight:600;color:${c||'var(--text)'}">${v}</span></div>`;
+-    
+-    // Zde po─Ź├şt├íme "Vyrobeno dob┼Öe" do souhrnn├ę tabulky pro jistotu ze stejn├Żch dat
+-    const dobre = Math.max(0, vyr - nok - tech - blok - tnz);
+-
+     sl.innerHTML = row(window.LANG_TEXT.summary_net_time, cisty + ' min') + 
+                    row(window.LANG_TEXT.summary_produced, vyr.toLocaleString()) + 
+                    row(window.LANG_TEXT.summary_nok, nok + ' ks', nok > 0 ? 'var(--accent2)' : 'var(--text)') + 
+-                   row(window.LANG_TEXT.summary_ok, dobre.toLocaleString(), 'var(--accent)') + 
++                   row(window.LANG_TEXT.summary_ok, (Math.max(0, vyr - nok)).toLocaleString(), 'var(--accent)') + 
+                    row(window.LANG_TEXT.summary_oee, pct(OEE), OEE >= .85 ? 'var(--accent)' : (OEE >= .7 ? 'var(--warn)' : 'var(--accent2)'));
+ }
+ 
+@@ -1707,4 +1730,4 @@ setTyp('serie');
+ renderHourlyGrid();
+ 
+ </script>
+-<?php require APP_ROOT . '/includes/layout_end.php'; ?>
+\ No newline at end of file
++<?php require APP_ROOT . '/includes/layout_end.php'; ?>

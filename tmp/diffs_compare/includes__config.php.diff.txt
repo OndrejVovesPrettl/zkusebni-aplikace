@@ -1,0 +1,16 @@
+﻿diff --git "a/v5.3\\includes\\config.php" "b/v3.4\\includes\\config.php"
+index 24caaea..c71c02a 100644
+--- "a/v5.3\\includes\\config.php"
++++ "b/v3.4\\includes\\config.php"
+@@ -31,9 +31,9 @@ define('TRACEABILITY_LOCAL_DB', getenv('TRACEABILITY_LOCAL_DB') ?: ($localSecret
+ 
+ // ÔöÇÔöÇ Aplikace ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+ define('APP_NAME', 'DVD Production Tracking');
+-define('APP_VERSION', '5.3.3');
++define('APP_VERSION', '5.3.4');
+ define('APP_ROOT', dirname(__DIR__));
+-define('APP_URL', 'http://10.67.100.69/pisek/v5.3');
++define('APP_URL', 'http://10.67.100.69/pisek/v3.4');
+ 
+ // ÔöÇÔöÇ Mail / SMTP ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+ define('MAIL_SMTP_HOST', getenv('DVD_MAIL_SMTP_HOST') ?: ($localSecrets['DVD_MAIL_SMTP_HOST'] ?? ''));

@@ -1,6 +1,8 @@
 # 🌍 Nový Jazykový Systém – Pokyny
 
-## Stav dokumentace (v5.3.3)
+## Stav dokumentace (v5.4.0)
+
+- Release `v5.4.0` aktualizuje verzi aplikace, release metadata a dokumentaci pro novou produkční verzi; i18n workflow a klíče se tímto releasem nemění.
 
 - Dokumentace odpovídá stavu release `v5.0.7`.
 - Pro sjednocený report `Týdenní výroba` používej klíč `kt_report_all_title`.

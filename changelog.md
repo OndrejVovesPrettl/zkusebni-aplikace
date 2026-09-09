@@ -3,6 +3,22 @@
 Tento soubor je centralni changelog projektu.
 Kazda nova verze musi mit vlastni sekci ve formatu ## vX.Y.Z.
 
+## v5.4.0 (2026-08-31)
+
+### Zmeny
+- Release `v5.4.0` aktualizuje verzi aplikace, dokumentaci a GitHub release metadata pro finální produkční build.
+- `index.php`: pole `Vyrobeno celkem (ks)` akceptuje hodnotu `0`, přičemž před uložením se vyžaduje potvrzení uživatele, že je si vědom nulové výroby.
+- Sjednocena dokumentace a release notes napříč MD soubory pro novou verzi.
+
+## v5.3.4 (2026-08-13)
+
+### Zmeny
+- Synchronizace `v3.4` s kodovou vetvi `v5.3` pro klicove moduly: `index.php`, `includes/config.php`, `admin/nok_kody.php`, `admin/prestavky.php`, `admin/zaznamy_pracovnici.php`, `admin/zaznamy_pracovnici_detail.php`.
+- `admin/nok_kody.php`: finalni editor NOK matice s filtraci, pridavanim/odebiranim kodu a role-guardem pro rebuild z Excelu.
+- `admin/prestavky.php` + `includes/config.php`: sjednoceni ciselniku prestavek vcetne normalizacnich kroku a aligned seed/upsert chovani.
+- `index.php`: zachovano poradi sekci a logika odpovidajici stavu `v5.3`, vcetne navaznosti na aktualni NOK/pracovni flow.
+- `admin/zaznamy_pracovnici.php` + `admin/zaznamy_pracovnici_detail.php`: sjednocena OEE/downtime agregace podle aktualniho modelu pouziteho ve vetvi `v5.3`.
+
 ## v5.3.3 (2026-08-10)
 
 ### Zmeny

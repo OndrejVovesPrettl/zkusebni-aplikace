@@ -1,0 +1,41 @@
+﻿diff --git "a/c:\\laragon\\www\\pisek\\v5.3\\includes\\config.php" "b/c:\\laragon\\www\\pisek\\v3.4\\includes\\config.php"
+index 24caaea..1ae97e5 100644
+--- "a/c:\\laragon\\www\\pisek\\v5.3\\includes\\config.php"
++++ "b/c:\\laragon\\www\\pisek\\v3.4\\includes\\config.php"
+@@ -33,7 +33,7 @@ define('TRACEABILITY_LOCAL_DB', getenv('TRACEABILITY_LOCAL_DB') ?: ($localSecret
+ define('APP_NAME', 'DVD Production Tracking');
+ define('APP_VERSION', '5.3.3');
+ define('APP_ROOT', dirname(__DIR__));
+-define('APP_URL', 'http://10.67.100.69/pisek/v5.3');
++define('APP_URL', 'http://10.67.100.69/pisek/v3.4');
+ 
+ // ÔöÇÔöÇ Mail / SMTP ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
+ define('MAIL_SMTP_HOST', getenv('DVD_MAIL_SMTP_HOST') ?: ($localSecrets['DVD_MAIL_SMTP_HOST'] ?? ''));
+@@ -2174,11 +2174,15 @@ function ensurePrestavkyTable(): void {
+             $stmt->execute($r);
+         }
+     }
+-}
+ 
+-   
++    // Normalize labels for existing rows to unified naming.
++    $pdo->exec("UPDATE prestavky SET zona='S├ęrie' WHERE zona LIKE '1 Patro%'");
++    $pdo->exec("UPDATE prestavky SET zona='Filtry' WHERE zona LIKE '2 Patro%'");
++    $pdo->exec("UPDATE prestavky SET nazev=CONCAT('Pauza ', poradi)");
++    $pdo->exec("UPDATE prestavky SET cas_od='05:55', cas_do='06:00', trvani_min=5 WHERE rezim_hod=12 AND smena_kod='N12' AND poradi=4");
++    $pdo->exec("DELETE FROM prestavky WHERE poradi > 4");
++
+     // Ensure default slots are also aligned for already-populated tables.
+-    /*
+     $ins = $pdo->prepare("INSERT INTO prestavky
+         (zona, rezim_hod, smena_kod, nazev, cas_od, cas_do, trvani_min, poradi, aktivni)
+         VALUES (?,?,?,?,?,?,?,?,1)
+@@ -2191,7 +2195,7 @@ function ensurePrestavkyTable(): void {
+     foreach (getDefaultPrestavkySeed() as $r) {
+         $ins->execute($r);
+     }
+-}*/
++}
+ 
+ function getPrestavkyList(bool $onlyActive = true): array {
+     ensurePrestavkyTable();

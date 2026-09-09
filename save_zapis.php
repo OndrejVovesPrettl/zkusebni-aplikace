@@ -61,7 +61,7 @@ try {
     $pdo = db();
     $pdo->beginTransaction();
 
-    $typ   = in_array(post('typ'),['serie','filtry']) ? post('typ') : 'serie';
+    $typ   = in_array(post('typ'), ['serie', 'filtry', 'vstrikovna'], true) ? post('typ') : 'serie';
     $datum = post('datum') ?: date('Y-m-d');
     if (!validateDate($datum)) {
         jsonOut(['ok'=>false,'error'=>'Invalid date'],422);
@@ -70,6 +70,8 @@ try {
     $mesic = (int)date('n', strtotime($datum));
     $rok   = (int)date('Y', strtotime($datum));
     $smena = post('smena','O8');
+    // Načtení a bezpečnostní kontrola skupiny (povoleno jen A, B, C, D)
+    $skupina = in_array(post('skupina'), ['A', 'B', 'C', 'D']) ? post('skupina') : null;
 
     // Pracoviště info – načteme z DB pokud vybrané
     $pracId = post('pracovisite_id') ? (int)post('pracovisite_id') : null;
@@ -80,21 +82,15 @@ try {
 
     $vyrobeno  = max(0,(int)post('vyrobeno_ks',0));
     $nokKs     = max(0,(int)post('nok_ks',0));
-    $kPos      = max(0,(int)post('k_posouzeni',0)); // Zůstává pro kompatibilitu
-    
-    // Nové číselné hodnoty z inputů (místo checkboxů)
-    $techKs    = max(0,(int)post('tech',0));
-    $blokKs    = max(0,(int)post('blok',0));
-    $tnzKs     = max(0,(int)post('tnz',0));
-    
-    // Vyrobeno dobře: Odečteme vadné kusy a odebrané kusy, aby hodnota odpovídala realitě na sklad
-    $dobre     = max(0, $vyrobeno - $nokKs - $techKs - $blokKs - $tnzKs);
-    
+    $kPos      = max(0,(int)post('k_posouzeni',0));
+    $dobre     = max(0,$vyrobeno - $nokKs);
     $pracDoba  = post('pracovni_doba_min')!=='' ? (int)post('pracovni_doba_min') : null;
     $pauza     = max(0,(int)post('pauza_min',0));
     $prestas   = max(0,(int)post('prestas_min',0));
     $cistyCas  = post('cisty_cas_min')!=='' ? (int)post('cisty_cas_min') : null;
-
+    $tech      = max(0, (int)post('tech', 0));
+    $blok      = max(0, (int)post('blok', 0));
+    $tnz       = max(0, (int)post('tnz', 0));
     // Centrálně zadané prostoje z řádků
     $prostoje = [];
     foreach (($_POST['prostoje'] ?? []) as $rawProstoj) {
@@ -166,7 +162,7 @@ try {
             $oeeP = 0.0;
         }
 
-        // C) Kvalita = Dobré ks / Vyrobené ks (Zde se záměrně neodečítá Tech/Blok/TNZ)
+        // C) Kvalita = Dobré ks / Vyrobené ks
         if ($vyrobeno > 0) {
             $oeeQ = min(1.0, max(0.0, ($vyrobeno - $nokKs) / $vyrobeno));
         }
@@ -233,7 +229,7 @@ try {
     $poziceSummary = $workerPositions ? normalizePeopleListValue(implode(', ', $workerPositions), 100) : null;
 
     $stmt = $pdo->prepare("INSERT INTO zapisy
-        (typ,pracovisite_id,cw,datum,rok,mesic,smena,cas_prichodu,cas_odchodu,
+        (typ,pracovisite_id,cw,datum,rok,mesic,smena,skupina,cas_prichodu,cas_odchodu,
          pracovni_doba_min,prestas_min,pauza_min,jmeno,pracovni_pozice,
          zakaznik,projekt,verze,kod_pracovisite,nazev_pracovisite,nazev_dilu,
          sap_cislo,nakladove_stredisko,final_typ,
@@ -242,7 +238,7 @@ try {
          norma_ks,cycle_time_min,tech,blok,tnz,
          poznamky,zapsal,poznamka_zapisujiciho)
         VALUES
-        (:typ,:prac_id,:cw,:datum,:rok,:mesic,:smena,:cas_pr,:cas_od,
+        (:typ,:prac_id,:cw,:datum,:rok,:mesic,:smena,:skupina,:cas_pr,:cas_od,
          :prac_doba,:prestas,:pauza,:jmeno,:pozice,
          :zakaznik,:projekt,:verze,:kp,:np,:nd,:sap,:ns,:final,
          :vyr,:nok,:pos,:dobre,:cisty,
@@ -252,7 +248,7 @@ try {
 
     $stmt->execute([
         ':typ'=>$typ,':prac_id'=>$pracId,':cw'=>$cw,':datum'=>$datum,
-        ':rok'=>$rok,':mesic'=>$mesic,':smena'=>$smena,
+        ':rok'=>$rok,':mesic'=>$mesic,':smena'=>$smena,':skupina'=>$skupina,
         ':cas_pr'=>$casPr,':cas_od'=>$casOd,
         ':prac_doba'=>$pracDoba,':prestas'=>$prestas,':pauza'=>$pauza,
         ':jmeno'=>$jmeno,':pozice'=>$poziceSummary,
@@ -264,10 +260,7 @@ try {
         ':vyr'=>$vyrobeno,':nok'=>$nokKs,':pos'=>$kPos,':dobre'=>$dobre,':cisty'=>$cistyCas,
         ':oee_a'=>$oeeA,':oee_p'=>$oeeP,':oee_q'=>$oeeQ,':oee'=>$oeeTotal,
         ':norma'=>$normaKs,':cycle'=>$cyclMin,
-        
-        // Zde propisujeme plnohodnotná čísla!
-        ':tech'=>$techKs,':blok'=>$blokKs,':tnz'=>$tnzKs,
-        
+        ':tech'=>$tech, ':blok'=>$blok, ':tnz'=>$tnz,
         ':pozn'=>post('poznamky')?:null,
         ':zapsal'=>post('zapsal')?:null,
         ':pozn_zap'=>post('poznamka_zapisujiciho')?:null,
@@ -326,6 +319,7 @@ try {
             'typ' => $typ,
             'datum' => $datum,
             'smena' => $smena,
+            'skupina' => $skupina,
             'pracovisite' => $pw['nazev_pracovisite'] ?? '',
             'vyrobeno_ks' => $vyrobeno,
             'nok_ks' => $nokKs,

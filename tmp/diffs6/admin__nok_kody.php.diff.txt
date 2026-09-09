@@ -1,0 +1,638 @@
+﻿diff --git "a/c:\\laragon\\www\\pisek\\v5.3\\admin\\nok_kody.php" "b/c:\\laragon\\www\\pisek\\v3.4\\admin\\nok_kody.php"
+index 9990448..50836c2 100644
+--- "a/c:\\laragon\\www\\pisek\\v5.3\\admin\\nok_kody.php"
++++ "b/c:\\laragon\\www\\pisek\\v3.4\\admin\\nok_kody.php"
+@@ -1,39 +1,124 @@
+ <?php
+-// admin/nok_kody.php - NOK matrix editor (s p┼Öid├ív├ín├şm, editac├ş i skr├Żv├ín├şm chyb)
+-@ini_set('max_input_vars', '10000');
+-
++// admin/nok_kody.php - NOK matrix editor (X = AFO, Y = NOK ID)
+ require_once dirname(__DIR__) . '/includes/config.php';
+ requireRole('superadmin');
+ $pageTitle = t('nav_nok');
+ $activePage = 'nok';
+ ensureNokKodyMatrixSchema();
++$canRebuildFromExcel = isSuperAdmin();
+ 
+-$msg = null;
++if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'add_nok_code') {
++    if (!verifyCsrfToken(post('_csrf'))) {
++        http_response_code(403);
++        die('CSRF');
++    }
+ 
+-// 1. Ulo┼żen├ş matice
+-if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
++    $newKodRaw = trim((string)post('new_kod'));
++    $newPopis = trim((string)post('new_popis'));
++    if ($newKodRaw === '' || !preg_match('/^\d+$/', $newKodRaw)) {
++        $msg = 'Kod musi byt cislo.';
++    } elseif ($newPopis === '') {
++        $msg = 'Popis nesmi byt prazdny.';
++    } else {
++        $newKod = (int)$newKodRaw;
++        $pdo = db();
++        $pdo->beginTransaction();
++        try {
++            $existing = db_row('SELECT id FROM nok_kody WHERE kod=? LIMIT 1', [$newKod]);
++            if ($existing) {
++                $nokId = (int)$existing['id'];
++                db()->prepare('UPDATE nok_kody SET popis=?, aktivni=1, zobrazit_default=1 WHERE id=?')->execute([$newPopis, $nokId]);
++            } else {
++                db()->prepare('INSERT INTO nok_kody (kod, popis, aktivni, zobrazit_default) VALUES (?, ?, 1, 1)')->execute([$newKod, $newPopis]);
++                $nokId = (int)$pdo->lastInsertId();
++            }
++
++            $trKey = 'nok_' . str_pad((string)$newKod, 3, '0', STR_PAD_LEFT) . '_popis';
++            db()->prepare(
++                'INSERT INTO translations (lang_code, `key`, `value`) VALUES (?, ?, ?) '
++                . 'ON DUPLICATE KEY UPDATE `value`=VALUES(`value`), updated_at=NOW()'
++            )->execute(['cs', $trKey, $newPopis]);
++
++            $afoRowsForInsert = db_all('SELECT DISTINCT afo FROM nok_matrix_afo ORDER BY CAST(afo AS UNSIGNED), afo');
++            if ($afoRowsForInsert !== []) {
++                $insMatrix = db()->prepare(
++                    'INSERT INTO nok_matrix_afo (afo, nok_kod_id, zobrazit) VALUES (?, ?, 1) '
++                    . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), updated_at=NOW()'
++                );
++                foreach ($afoRowsForInsert as $afoRow) {
++                    $afo = trim((string)($afoRow['afo'] ?? ''));
++                    if ($afo === '') {
++                        continue;
++                    }
++                    $insMatrix->execute([$afo, $nokId]);
++                }
++            }
++
++            $pdo->commit();
++            redirect(APP_URL . '/admin/nok_kody.php?ok=1&added=1');
++        } catch (Throwable $e) {
++            if ($pdo->inTransaction()) {
++                $pdo->rollBack();
++            }
++            $msg = 'Pridani kodu selhalo: ' . $e->getMessage();
++        }
++    }
++}
++
++if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'remove_nok_code') {
+     if (!verifyCsrfToken(post('_csrf'))) {
+         http_response_code(403);
+         die('CSRF');
+     }
+ 
+-    $matrixJson = post('matrix_json');
+-    $textsJson = post('texts_json');
++    $removeId = (int)post('remove_id');
++    if ($removeId <= 0) {
++        $msg = 'Neplatne ID kodu pro odebrani.';
++    } else {
++        $pdo = db();
++        $pdo->beginTransaction();
++        try {
++            db()->prepare('UPDATE nok_kody SET aktivni=0 WHERE id=?')->execute([$removeId]);
++            db()->prepare('DELETE FROM nok_matrix_afo WHERE nok_kod_id=?')->execute([$removeId]);
++            $pdo->commit();
++            redirect(APP_URL . '/admin/nok_kody.php?ok=1&removed=1');
++        } catch (Throwable $e) {
++            if ($pdo->inTransaction()) {
++                $pdo->rollBack();
++            }
++            $msg = 'Odebrani kodu selhalo: ' . $e->getMessage();
++        }
++    }
++}
+ 
+-    $posted = is_string($matrixJson) ? (json_decode($matrixJson, true) ?: []) : [];
+-    $postedTexts = is_string($textsJson) ? (json_decode($textsJson, true) ?: []) : [];
++if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
++    if (!verifyCsrfToken(post('_csrf'))) {
++        http_response_code(403);
++        die('CSRF');
++    }
+ 
+-    $afoList = db_all('SELECT CAST(cislo_id AS CHAR) AS afo FROM pracovisite WHERE aktivni = 1 AND cislo_id IS NOT NULL AND cislo_id > 0 ORDER BY CAST(cislo_id AS UNSIGNED), cislo_id');
++    $posted = post('matrix');
++    if (!is_array($posted)) {
++        $posted = [];
++    }
++    $postedTexts = post('texts');
++    if (!is_array($postedTexts)) {
++        $postedTexts = [];
++    }
++
++    $afoList = db_all('SELECT DISTINCT afo FROM nok_matrix_afo ORDER BY CAST(afo AS UNSIGNED), afo');
+     $afoKeys = array_map(static fn(array $r): string => trim((string)$r['afo']), $afoList);
+ 
+-    $nokRows = db_all('SELECT id, kod, popis, aktivni FROM nok_kody WHERE aktivni=1 ORDER BY id');
++    $nokRows = db_all('SELECT id, popis, aktivni FROM nok_kody WHERE aktivni=1 ORDER BY id');
+ 
+     $pdo = db();
+     $pdo->beginTransaction();
+     try {
++        $pdo->exec('DELETE FROM nok_matrix_afo');
++
+         $ins = $pdo->prepare(
+-            'INSERT INTO nok_matrix_afo (afo, nok_kod_id, kod, popis, zobrazit) VALUES (?, ?, ?, ?, ?) '
+-            . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), kod=VALUES(kod), popis=VALUES(popis), updated_at=NOW()'
++            'INSERT INTO nok_matrix_afo (afo, nok_kod_id, zobrazit) VALUES (?, ?, ?) '
++            . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), updated_at=NOW()'
+         );
+         $updText = $pdo->prepare('UPDATE nok_kody SET popis=? WHERE id=?');
+         $updTr = $pdo->prepare(
+@@ -43,21 +128,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
+ 
+         foreach ($nokRows as $nok) {
+             $nokId = (int)$nok['id'];
+-            $nokKod = (int)($nok['kod'] ?? $nokId);
+             $newText = trim((string)($postedTexts[(string)$nokId] ?? $nok['popis'] ?? ''));
+             if ($newText === '') {
+                 $newText = (string)($nok['popis'] ?? '');
+             }
+             $updText->execute([$newText, $nokId]);
+-            $keyBase = 'nok_' . str_pad((string)$nokKod, 3, '0', STR_PAD_LEFT) . '_popis';
++            $keyBase = 'nok_' . str_pad((string)$nokId, 3, '0', STR_PAD_LEFT) . '_popis';
+             $updTr->execute(['cs', $keyBase, $newText]);
+ 
+             foreach ($afoKeys as $afo) {
+                 $val = 0;
+-                if (isset($posted[(string)$nokId]) && is_array($posted[(string)$nokId]) && !empty($posted[(string)$nokId][$afo])) {
+-                    $val = 1;
++                if (isset($posted[(string)$nokId]) && is_array($posted[(string)$nokId]) && isset($posted[(string)$nokId][$afo])) {
++                    $val = ((int)$posted[(string)$nokId][$afo] === 1) ? 1 : 0;
+                 }
+-                $ins->execute([$afo, $nokId, $nokKod, $newText, $val]);
++                $ins->execute([$afo, $nokId, $val]);
+             }
+         }
+ 
+@@ -67,58 +151,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
+         if ($pdo->inTransaction()) {
+             $pdo->rollBack();
+         }
+-        $msg = 'Ulo┼żen├ş matice selhalo: ' . $e->getMessage();
++        $msg = 'Ulozeni matice selhalo: ' . $e->getMessage();
+     }
+ }
+ 
+-// 2. P┼Öid├ín├ş nov├ę chyby (k├│d se apr├Ęs-dopo─Ź├şt├í automaticky jako MAX + 1)
+-if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'add_nok_kod') {
++if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'rebuild_from_excel') {
+     if (!verifyCsrfToken(post('_csrf'))) {
+         http_response_code(403);
+         die('CSRF');
+     }
+-
+-    $popis = trim((string)post('new_nok_popis'));
+-
+-    if ($popis !== '') {
+-        try {
+-            $nextKod = (int)db_val('SELECT COALESCE(MAX(kod), 0) + 1 FROM nok_kody');
+-            
+-            $stmt = db()->prepare('INSERT INTO nok_kody (kod, popis, skupina, aktivni, zobrazit_default) VALUES (?, ?, "ostatni", 1, 1)');
+-            $stmt->execute([$nextKod, $popis]);
+-            
+-            $keyBase = 'nok_' . str_pad((string)$nextKod, 3, '0', STR_PAD_LEFT) . '_popis';
+-            $updTr = db()->prepare('INSERT INTO translations (lang_code, `key`, `value`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `value`=VALUES(`value`), updated_at=NOW()');
+-            $updTr->execute(['cs', $keyBase, $popis]);
+-
+-            redirect(APP_URL . '/admin/nok_kody.php?ok=1');
+-        } catch (Throwable $e) {
+-            $msg = 'Chyba p┼Öi p┼Öid├ív├ín├ş chyby: ' . $e->getMessage();
+-        }
+-    } else {
+-        $msg = 'Vypl┼łte pros├şm popis chyby.';
+-    }
+-}
+-
+-// 3. Deaktivace / skryt├ş chyby
+-if (get('action') === 'deaktivovat_nok' && get('id')) {
+-    if (!verifyCsrfToken(get('_csrf'))) {
+-        http_response_code(403);
+-        die('CSRF');
+-    }
+-    try {
+-        db()->prepare('UPDATE nok_kody SET aktivni=0 WHERE id=?')->execute([(int)get('id')]);
+-        redirect(APP_URL . '/admin/nok_kody.php?ok=1');
+-    } catch (Throwable $e) {
+-        $msg = 'Chyba p┼Öi deaktivaci: ' . $e->getMessage();
+-    }
+-}
+-
+-// 4. P┼Öestav─Ťn├ş z Excelu
+-if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'rebuild_from_excel') {
+-    if (!verifyCsrfToken(post('_csrf'))) {
++    if (!$canRebuildFromExcel) {
+         http_response_code(403);
+-        die('CSRF');
++        die('Forbidden');
+     }
+ 
+     $cmd = 'php ' . escapeshellarg(APP_ROOT . '/scripts/import_nok_rebuild_from_excel.php');
+@@ -134,6 +178,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'rebuild_from_ex
+ }
+ 
+ $lang = $_SESSION['lang'] ?? 'cs';
++$filterQ = trim((string)get('q'));
++$showMode = strtolower(trim((string)get('show')));
++$showAll = ($showMode === 'all');
+ 
+ $nokRows = db_all(
+     "SELECT n.id,
+@@ -144,27 +191,52 @@ $nokRows = db_all(
+                 n.popis
+             ) AS popis
+      FROM nok_kody n
+-     WHERE n.aktivni=1
++     " . ($showAll ? "" : "WHERE n.aktivni=1") . "
+      ORDER BY n.id",
+     [$lang]
+ );
+ 
+-$afoRows = db_all('SELECT CAST(cislo_id AS CHAR) AS afo, kod_pracovisite, nazev_pracovisite, nazev_dilu, aktivni 
+-                   FROM pracovisite 
+-                   WHERE aktivni = 1 AND cislo_id IS NOT NULL AND cislo_id > 0 
+-                   ORDER BY CAST(cislo_id AS UNSIGNED), cislo_id');
++if ($filterQ !== '') {
++    $needle = mb_strtolower($filterQ, 'UTF-8');
++    $nokRows = array_values(array_filter($nokRows, static function(array $row) use ($needle): bool {
++        $id = (string)($row['id'] ?? '');
++        $kod = (string)($row['kod'] ?? '');
++        $popis = mb_strtolower((string)($row['popis'] ?? ''), 'UTF-8');
++        return str_contains($id, $needle)
++            || str_contains($kod, $needle)
++            || str_contains($popis, $needle);
++    }));
++}
++
++$afoRows = db_all('SELECT DISTINCT afo FROM nok_matrix_afo ORDER BY CAST(afo AS UNSIGNED), afo');
++$afoList = array_map(static fn(array $r): string => (string)$r['afo'], $afoRows);
+ 
+-$afoList = [];
+ $afoWorkplaceMeta = [];
+-foreach ($afoRows as $r) {
+-    $afoStr = (string)$r['afo'];
+-    $afoList[] = $afoStr;
+-    $afoWorkplaceMeta[$afoStr] = [
+-        'kod' => (string)($r['kod_pracovisite'] ?? ''),
+-        'nazev' => (string)($r['nazev_pracovisite'] ?? ''),
+-        'dil' => (string)($r['nazev_dilu'] ?? ''),
+-        'aktivni' => (int)($r['aktivni'] ?? 0) === 1,
+-    ];
++if ($afoList !== []) {
++    $ids = [];
++    foreach ($afoList as $afo) {
++        if (preg_match('/^\d+$/', $afo)) {
++            $ids[] = (int)$afo;
++        }
++    }
++    $ids = array_values(array_unique(array_filter($ids, static fn(int $v): bool => $v > 0)));
++    if ($ids !== []) {
++        $ph = implode(',', array_fill(0, count($ids), '?'));
++        $rows = db_all(
++            'SELECT cislo_id, kod_pracovisite, nazev_pracovisite, nazev_dilu, aktivni
++             FROM pracovisite
++             WHERE cislo_id IN (' . $ph . ')',
++            $ids
++        );
++        foreach ($rows as $r) {
++            $afoWorkplaceMeta[(string)$r['cislo_id']] = [
++                'kod' => (string)($r['kod_pracovisite'] ?? ''),
++                'nazev' => (string)($r['nazev_pracovisite'] ?? ''),
++                'dil' => (string)($r['nazev_dilu'] ?? ''),
++                'aktivni' => (int)($r['aktivni'] ?? 0) === 1,
++            ];
++        }
++    }
+ }
+ 
+ $matrixMap = [];
+@@ -177,17 +249,6 @@ if ($afoList !== [] && $nokRows !== []) {
+     }
+ }
+ 
+-// V├Żpo─Źet statistik pro kontroln├ş po─Ź├ştadlo
+-$totalActiveInMatrix = 0;
+-foreach ($matrixMap as $nokId => $afos) {
+-    foreach ($afoList as $afo) {
+-        if (!empty($afos[$afo]) && (int)$afos[$afo] === 1) {
+-            $totalActiveInMatrix++;
+-        }
+-    }
+-}
+-$totalDbActiveAssignments = (int)db_val('SELECT COUNT(*) FROM nok_matrix_afo WHERE zobrazit = 1');
+-
+ require APP_ROOT . '/includes/layout.php';
+ ?>
+ <div class="topbar">
+@@ -203,75 +264,56 @@ require APP_ROOT . '/includes/layout.php';
+ <div class="content">
+ <?php if(get('ok')):?><div class="alert mb-3" style="background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:var(--success);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">Ôťô <?= t('saved') ?></div><?php endif;?>
+ <?php if(get('rebuilt')):?><div class="alert mb-3" style="background:rgba(0,229,176,.1);border:1px solid rgba(0,229,176,.25);color:var(--accent);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">Excel import prestavel ciselnik NOK i matici AFO.</div><?php endif;?>
++<?php if(get('added')):?><div class="alert mb-3" style="background:rgba(0,229,176,.1);border:1px solid rgba(0,229,176,.25);color:var(--accent);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">NOK kod byl pridan nebo znovu aktivovan.</div><?php endif;?>
++<?php if(get('removed')):?><div class="alert mb-3" style="background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.25);color:var(--accent2);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">NOK kod byl odebran z aktivnich.</div><?php endif;?>
+ <?php if(isset($msg)):?><div class="alert mb-3" style="background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.25);color:var(--accent2);border-radius:8px;padding:.6rem 1rem;font-size:.82rem;white-space:pre-wrap"><?= h($msg) ?></div><?php endif;?>
+ 
+-<!-- PO─î├üTEK KONTROLN├ŹHO PO─î├ŹTADLA PRO KONTROLU ULO┼ŻEN├Ź -->
+-<?php /* ?>
+-<div class="card-dvd mb-3 no-print" style="background:rgba(0,229,176,.06);border:1px solid rgba(0,229,176,.25)">
++<div class="card-dvd mb-3 no-print">
++    <div class="card-body-dvd">
++        <form method="get" class="d-flex flex-wrap gap-2 align-items-center">
++            <input type="text" name="q" class="form-control" style="max-width:320px" placeholder="Filtr ID/KOD/Popis" value="<?= h($filterQ) ?>">
++            <select name="show" class="form-select" style="max-width:220px">
++                <option value="active" <?= !$showAll ? 'selected' : '' ?>>Jen aktivni</option>
++                <option value="all" <?= $showAll ? 'selected' : '' ?>>Vcetne neaktivnich</option>
++            </select>
++            <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-funnel me-1"></i>Filtrovat</button>
++            <a href="<?= h(APP_URL . '/admin/nok_kody.php') ?>" class="btn-outline" style="padding:.42rem .95rem;font-size:.82rem;">Reset</a>
++        </form>
++    </div>
++</div>
++
++<div class="card-dvd mb-3 no-print">
+     <div class="card-body-dvd">
+-        <div class="d-flex align-items-center justify-content-between mb-2">
+-            <span style="font-size:.85rem;font-weight:600;color:var(--accent)"><i class="bi bi-speedometer2 me-2"></i>Kontroln├ş po─Ź├ştadlo stavu matice</span>
+-            <span style="font-size:.72rem;color:var(--muted)">Pro skryt├ş sta─Ź├ş zakomentovat ozna─Źen├Ż blok v `admin/nok_kody.php`</span>
+-        </div>
+-        <div class="row g-2 text-center">
+-            <div class="col-6 col-md-3">
+-                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem">
+-                    <div style="font-size:.62rem;color:var(--muted);text-transform:uppercase">Po─Źet chyb (┼ś├ídk┼»)</div>
+-                    <div class="mono" style="font-size:1.15rem;font-weight:700;color:var(--text)"><?= count($nokRows) ?></div>
+-                </div>
+-            </div>
+-            <div class="col-6 col-md-3">
+-                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem">
+-                    <div style="font-size:.62rem;color:var(--muted);text-transform:uppercase">Aktivn├ş procesy (Sloupce)</div>
+-                    <div class="mono" style="font-size:1.15rem;font-weight:700;color:var(--text)"><?= count($afoList) ?></div>
+-                </div>
+-            </div>
+-            <div class="col-6 col-md-3">
+-                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem">
+-                    <div style="font-size:.62rem;color:var(--muted);text-transform:uppercase">Za┼íkrtnut├ę vazby (┼Żiv─Ť)</div>
+-                    <div class="mono" id="live-checked-counter" style="font-size:1.15rem;font-weight:700;color:var(--accent)"><?= $totalActiveInMatrix ?></div>
+-                </div>
+-            </div>
+-            <div class="col-6 col-md-3">
+-                <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem">
+-                    <div style="font-size:.62rem;color:var(--muted);text-transform:uppercase">Aktivn├ş vazby v DB</div>
+-                    <div class="mono" style="font-size:1.15rem;font-weight:700;color:var(--accent3)"><?= $totalDbActiveAssignments ?></div>
+-                </div>
+-            </div>
+-        </div>
++        <form method="post" class="d-flex flex-wrap gap-2 align-items-center">
++            <input type="hidden" name="action" value="add_nok_code">
++            <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
++            <input type="number" name="new_kod" class="form-control" style="max-width:160px" min="1" step="1" placeholder="KOD (cislo)" required>
++            <input type="text" name="new_popis" class="form-control" style="min-width:320px;max-width:520px" placeholder="Popis nove NOK chyby" required>
++            <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-plus-circle me-1"></i>Pridat kod</button>
++        </form>
+     </div>
+-</div> 
+-<?php */ ?>
+-<!-- KONEC KONTROLN├ŹHO PO─î├ŹTADLA -->
++</div>
+ 
++<?php if ($canRebuildFromExcel): ?>
+ <div class="card-dvd mb-3 no-print">
+-    <div class="card-body-dvd d-flex flex-wrap align-items-center justify-content-between gap-3">
++    <div class="card-body-dvd">
+         <form method="post" class="d-flex flex-wrap gap-2 align-items-center">
+             <input type="hidden" name="action" value="rebuild_from_excel">
+             <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+             <button type="submit" class="btn-dvd btn-dvd-sm" onclick="return confirm('Prestavet NOK ciselnik i matici podle uploads/NOKy.xlsx?')">
+                 <i class="bi bi-arrow-repeat me-1"></i>Prestavet z Excelu
+             </button>
+-            <button type="button" class="btn-dvd btn-dvd-sm" onclick="openAddNokModal()">
+-                <i class="bi bi-plus-lg me-1"></i>P┼Öidat novou chybu
+-            </button>
+             <span style="font-size:.78rem;color:var(--muted)">Smaze puvodni NOK logiku, nastavi ID chyby jako klic a naplni AFO matici.</span>
+         </form>
+-
+-        <div class="d-flex gap-2">
+-            <input type="text" id="search-afo" class="form-control form-control-sm" placeholder="Hledat proces (AFO)..." oninput="filterMatrix()" style="width:180px;font-size:.78rem">
+-            <input type="text" id="search-nok" class="form-control form-control-sm" placeholder="Hledat chybu..." oninput="filterMatrix()" style="width:180px;font-size:.78rem">
+-        </div>
+     </div>
+ </div>
++<?php endif; ?>
+ 
+-<form method="post" id="matrix-form" onsubmit="return serializeMatrixBeforeSubmit()">
++<form method="post">
+ <input type="hidden" name="action" value="save_matrix">
+ <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+-<input type="hidden" name="matrix_json" id="matrix_json" value="">
+-<input type="hidden" name="texts_json" id="texts_json" value="">
++<input type="hidden" name="remove_id" id="remove_nok_id" value="">
+ 
+-<!-- Modal pro ├║pravu textu chyby -->
+ <div id="nok-text-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:720px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
+         <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:.7rem;">
+@@ -289,39 +331,13 @@ require APP_ROOT . '/includes/layout.php';
+     </div>
+ </div>
+ 
+-<!-- Modal pro p┼Öid├ín├ş nov├ę chyby -->
+-<div id="add-nok-modal" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
+-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:500px;width:92%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);">
+-        <form method="post">
+-            <input type="hidden" name="action" value="add_nok_kod">
+-            <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+-            
+-            <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+-                <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-plus-circle me-2" style="color:var(--accent)"></i>P┼Öidat novou chybu</h5>
+-                <button type="button" onclick="closeAddNokModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;">&times;</button>
+-            </div>
+-            
+-            <div style="padding:1.1rem 1.3rem;">
+-                <label class="form-label-dvd" for="new_nok_popis">N├ízev chyby <span class="req">*</span></label>
+-                <input type="text" name="new_nok_popis" id="new_nok_popis" class="form-control" placeholder="nap┼Ö. Po┼íkozen├Ż konektor" required autocomplete="off">
+-                <small style="color:var(--muted);font-size:.72rem;display:block;margin-top:.4rem;">K├│d chyby bude automaticky p┼Öid─Ťlen syst├ęmem.</small>
+-            </div>
+-            
+-            <div style="padding:1rem 1.3rem;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:.75rem;">
+-                <button type="button" onclick="closeAddNokModal()" class="btn-outline" style="padding:.42rem .95rem;font-size:.82rem;">Zru┼íit</button>
+-                <button type="submit" class="btn-dvd btn-dvd-sm">Vytvo┼Öit chybu</button>
+-            </div>
+-        </form>
+-    </div>
+-</div>
+-
+ <div class="tbl-wrap">
+-<div class="overflow-x" style="max-height:70vh;overflow:auto;border:1px solid var(--border);border-radius:10px;">
+-<table class="tbl" id="matrix-table" style="min-width:1300px;border-collapse:separate;border-spacing:0;">
++<div class="overflow-x" style="max-height:70vh;overflow:auto;border:1px solid rgba(255,255,255,.08);border-radius:10px;">
++<table class="tbl" style="min-width:1300px;border-collapse:separate;border-spacing:0;">
+     <thead>
+         <tr>
+-            <th style="position:sticky;left:0;z-index:5;background:var(--surface2);color:var(--text);min-width:90px;border-bottom:1px solid var(--border)">ID chyby</th>
+-            <th style="position:sticky;left:90px;z-index:5;background:var(--surface2);color:var(--text);min-width:320px;border-bottom:1px solid var(--border)">Chyba</th>
++            <th style="position:sticky;left:0;z-index:5;background:#0f141b;min-width:90px;">ID chyby</th>
++            <th style="position:sticky;left:90px;z-index:5;background:#0f141b;min-width:320px;">Chyba</th>
+             <?php foreach($afoList as $afo):
+                 $meta = $afoWorkplaceMeta[$afo] ?? null;
+                 $headerMain = '#' . $afo;
+@@ -339,7 +355,7 @@ require APP_ROOT . '/includes/layout.php';
+                     $title = implode(' | ', $parts);
+                 }
+             ?>
+-            <th class="afo-col" data-afo-search="<?= mb_strtolower($title, 'UTF-8') ?>" style="min-width:94px;text-align:center;line-height:1.2;background:var(--surface2);color:var(--text);border-bottom:1px solid var(--border)" title="<?= h($title) ?>">
++            <th style="min-width:94px;text-align:center;line-height:1.2" title="<?= h($title) ?>">
+                 <div style="font-family:var(--mono);font-size:.72rem;"> <?= h($headerMain) ?> </div>
+                 <?php if ($headerSub !== ''): ?>
+                 <div style="font-size:.62rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:84px;margin:0 auto;"> <?= h($headerSub) ?> </div>
+@@ -352,30 +368,30 @@ require APP_ROOT . '/includes/layout.php';
+         <?php foreach($nokRows as $row):
+             $id = (int)$row['id'];
+         ?>
+-        <tr class="nok-row" data-nok-search="<?= mb_strtolower($id . ' ' . $row['popis'], 'UTF-8') ?>">
+-            <td style="position:sticky;left:0;z-index:4;background:var(--surface2);color:var(--text);font-family:var(--mono);border-bottom:1px solid var(--border)"><?= $id ?></td>
+-            <td style="position:sticky;left:90px;z-index:4;background:var(--surface2);color:var(--text);white-space:normal;border-bottom:1px solid var(--border)">
+-                <input type="hidden" class="nok-text-hidden" data-id="<?= $id ?>" id="nok_text_<?= $id ?>" value="<?= h($row['popis']) ?>">
+-                <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-width:280px;">
+-                    <div id="nok_text_preview_<?= $id ?>" style="font-size:.82rem;line-height:1.35;white-space:normal;flex:1 1 auto;color:var(--text)"><?= h($row['popis']) ?></div>
+-                    <div style="display:flex;align-items:center;gap:.3rem;flex:0 0 auto;">
+-                        <button type="button" class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;" onclick="openNokTextModal(<?= $id ?>)" title="Upravit text chyby">
++        <tr <?= ((int)($row['aktivni'] ?? 1) === 1) ? '' : 'style="opacity:.55"' ?>>
++            <td style="position:sticky;left:0;z-index:4;background:#121a23;font-family:var(--mono);"><?= $id ?></td>
++            <td style="position:sticky;left:90px;z-index:4;background:#121a23;white-space:normal;">
++                <input type="hidden" name="texts[<?= $id ?>]" id="nok_text_<?= $id ?>" value="<?= h($row['popis']) ?>">
++                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.6rem;min-width:280px;">
++                    <div id="nok_text_preview_<?= $id ?>" style="font-size:.82rem;line-height:1.35;white-space:normal;flex:1 1 auto;"><?= h($row['popis']) ?></div>
++                    <div style="display:flex;gap:.35rem;flex:0 0 auto;">
++                        <button type="button" class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;white-space:nowrap;" onclick="openNokTextModal(<?= $id ?>)" title="Upravit text chyby" aria-label="Upravit text chyby">
+                             <i class="bi bi-pencil"></i>
+                         </button>
+-                        <a href="?action=deaktivovat_nok&id=<?= $id ?>&_csrf=<?= h(generateCsrfToken()) ?>" 
+-                            class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;color:var(--warn);" 
+-                            onclick="return confirm('Opravdu chcete tuto chybu deaktivovat a skr├Żt z matice i formul├í┼Ö┼»? (Historick├í data z┼»stanou zachov├ína)')" 
+-                            title="Deaktivovat / Skr├Żt chybu">
+-                            <i class="bi bi-eye-slash"></i>
+-                        </a>
++                        <?php if ((int)($row['aktivni'] ?? 1) === 1): ?>
++                        <button type="submit" name="action" value="remove_nok_code" class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;white-space:nowrap;color:var(--accent2);border-color:rgba(255,107,53,.35);" onclick="return requestRemoveNok(<?= $id ?>)" title="Odebrat kod" aria-label="Odebrat kod">
++                            <i class="bi bi-trash"></i>
++                        </button>
++                        <?php endif; ?>
+                     </div>
+                 </div>
+             </td>
+             <?php foreach($afoList as $afo):
+                 $v = (int)($matrixMap[$id][$afo] ?? 0);
+             ?>
+-            <td class="afo-col-cell" style="text-align:center;border-bottom:1px solid var(--border)">
+-                <input type="checkbox" value="1" class="matrix-cb" data-nok="<?= $id ?>" data-afo="<?= h($afo) ?>" <?= $v===1?'checked':'' ?>>
++            <td style="text-align:center;">
++                <input type="hidden" name="matrix[<?= $id ?>][<?= h($afo) ?>]" value="0">
++                <input type="checkbox" value="1" name="matrix[<?= $id ?>][<?= h($afo) ?>]" <?= $v===1?'checked':'' ?>>
+             </td>
+             <?php endforeach; ?>
+         </tr>
+@@ -384,40 +400,20 @@ require APP_ROOT . '/includes/layout.php';
+ </table>
+ </div>
+ <div class="tbl-footer d-flex justify-content-between align-items-center">
+-    <span><?= count($nokRows) ?> NOK ID, <?= count($afoList) ?> AFO sloupc┼»</span>
+-    <button type="submit" class="btn-dvd btn-dvd-sm" id="btn-save-matrix"><i class="bi bi-save me-1"></i><?= t('save') ?></button>
++    <span><?= count($nokRows) ?> NOK ID, <?= count($afoList) ?> AFO sloupcu</span>
++    <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-save me-1"></i><?= t('save') ?></button>
+ </div>
+ </div>
+ </form>
+ </div>
+-
+ <script>
+ let activeNokTextId = null;
+ 
+-function updateLiveCheckedCount() {
+-    const count = document.querySelectorAll('.matrix-cb:checked').length;
+-    const el = document.getElementById('live-checked-counter');
+-    if (el) el.textContent = count.toLocaleString('cs-CZ');
+-}
+-
+-document.getElementById('matrix-table')?.addEventListener('change', function(e) {
+-    if (e.target && e.target.classList.contains('matrix-cb')) {
+-        updateLiveCheckedCount();
+-    }
+-});
+-
+-function openAddNokModal() {
+-    const modal = document.getElementById('add-nok-modal');
+-    const input = document.getElementById('new_nok_popis');
+-    if (modal) {
+-        modal.style.display = 'flex';
+-        if (input) input.focus();
+-    }
+-}
+-
+-function closeAddNokModal() {
+-    const modal = document.getElementById('add-nok-modal');
+-    if (modal) modal.style.display = 'none';
++function requestRemoveNok(id) {
++    const removeInput = document.getElementById('remove_nok_id');
++    if (!removeInput) return false;
++    removeInput.value = String(id);
++    return confirm('Odebrat kod ' + id + ' z aktivnich?');
+ }
+ 
+ function openNokTextModal(id) {
+@@ -454,53 +450,7 @@ function applyNokTextModal() {
+ document.getElementById('nok-text-modal')?.addEventListener('click', function(event) {
+     if (event.target === this) {
+         closeNokTextModal();
+-        closeAddNokModal();
+     }
+ });
+-
+-function serializeMatrixBeforeSubmit() {
+-    const matrix = {};
+-    const texts = {};
+-
+-    document.querySelectorAll('.nok-text-hidden').forEach(el => {
+-        const id = el.getAttribute('data-id');
+-        if (id) texts[id] = el.value || '';
+-    });
+-
+-    document.querySelectorAll('.matrix-cb:checked').forEach(cb => {
+-        const nokId = cb.getAttribute('data-nok');
+-        const afo = cb.getAttribute('data-afo');
+-        if (nokId && afo) {
+-            if (!matrix[nokId]) matrix[nokId] = {};
+-            matrix[nokId][afo] = 1;
+-        }
+-    });
+-
+-    document.getElementById('matrix_json').value = JSON.stringify(matrix);
+-    document.getElementById('texts_json').value = JSON.stringify(texts);
+-    return true;
+-}
+-
+-function filterMatrix() {
+-    const qAfo = (document.getElementById('search-afo')?.value || '').toLowerCase().trim();
+-    const qNok = (document.getElementById('search-nok')?.value || '').toLowerCase().trim();
+-
+-    document.querySelectorAll('.nok-row').forEach(tr => {
+-        const searchStr = tr.getAttribute('data-nok-search') || '';
+-        const visible = !qNok || searchStr.includes(qNok);
+-        tr.style.display = visible ? '' : 'none';
+-    });
+-
+-    const headers = document.querySelectorAll('.afo-col');
+-    headers.forEach((th, index) => {
+-        const searchStr = th.getAttribute('data-afo-search') || '';
+-        const visible = !qAfo || searchStr.includes(qAfo);
+-        th.style.display = visible ? '' : 'none';
+-
+-        document.querySelectorAll(`.nok-row td.afo-col-cell:nth-child(${index + 3})`).forEach(td => {
+-            td.style.display = visible ? '' : 'none';
+-        });
+-    });
+-}
+ </script>
+-<?php require APP_ROOT . '/includes/layout_end.php'; ?>
+\ No newline at end of file
++<?php require APP_ROOT . '/includes/layout_end.php'; ?>

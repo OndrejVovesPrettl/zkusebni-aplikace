@@ -1,5 +1,34 @@
 # Release Notes
 
+## v5.4.0 (2026-08-31)
+
+### Stabilní release a finalizace verzování
+- Byl aktualizován APP_VERSION na `5.4.0` a synchronizovány všechny MD dokumenty pro nový GitHub release.
+- `index.php`: pole `Vyrobeno celkem (ks)` nyní akceptuje `0` a při nulové výrobě se zobrazí potvrzovací hláška před uložením záznamu.
+- Releasová dokumentace je připravena pro vytvoření GItHub release tagu `v5.4.0`.
+
+## v5.3.4 (2026-08-13)
+
+### Synchronizace kodu v3.4 na stav v5.3
+- Do `v3.4` byly promitnuty funkcni zmeny z `v5.3` pro 6 hlavnic souboru:
+   - `index.php`
+   - `includes/config.php`
+   - `admin/nok_kody.php`
+   - `admin/prestavky.php`
+   - `admin/zaznamy_pracovnici.php`
+   - `admin/zaznamy_pracovnici_detail.php`
+
+### NOK editor a ciselniky
+- `admin/nok_kody.php` obsahuje finalni workflow filtrace, pridani/odebrani kodu a aktualizace prekladovych popisu.
+- `rebuild_from_excel` zustava omezen na roli `superadmin` i na backendu.
+
+### Prestavky a vypocty
+- `admin/prestavky.php` a runtime logika v `includes/config.php` jsou sjednoceny na stejne datove a seed chovani jako v `v5.3`.
+- `index.php` odpovida aktualnimu produkcnimu flow formulare ve vetvi `v5.3`.
+
+### Reporty pracovniku
+- `admin/zaznamy_pracovnici.php` a `admin/zaznamy_pracovnici_detail.php` pouzivaji stejnou OEE/downtime agregaci jako `v5.3`.
+
 ## v5.3.3 (2026-08-10)
 
 ### Dynamicke prestavky v hlavnim formulari

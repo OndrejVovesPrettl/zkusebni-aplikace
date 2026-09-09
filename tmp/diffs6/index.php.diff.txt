@@ -1,0 +1,199 @@
+﻿diff --git "a/c:\\laragon\\www\\pisek\\v5.3\\index.php" "b/c:\\laragon\\www\\pisek\\v3.4\\index.php"
+index d4d17ff..0f886de 100644
+--- "a/c:\\laragon\\www\\pisek\\v5.3\\index.php"
++++ "b/c:\\laragon\\www\\pisek\\v3.4\\index.php"
+@@ -358,24 +358,6 @@ require APP_ROOT . '/includes/layout.php';
+     </div>
+ </div>
+ 
+-<!-- ÔöÇÔöÇ 06 NOK z├íznamy ÔöÇÔöÇ -->
+-<div class="card-dvd mb-3" id="sec-nok">
+-    <div class="card-header-dvd" data-collapsible>
+-        <span class="s-num">06</span>
+-        <span class="s-title"><i class="bi bi-x-octagon me-2" style="color:var(--accent2)"></i><?= t('sec_nok') ?>
+-            <span id="nok-badge" style="display:none;background:rgba(255,107,53,.18);color:var(--accent2);font-family:var(--mono);font-size:.62rem;border-radius:3px;padding:.1rem .4rem;margin-left:.5rem"></span>
+-        </span>
+-        <i class="bi bi-chevron-down s-toggle"></i>
+-    </div>
+-    <div class="card-body-dvd">
+-    <div id="nok-empty-hint" style="display:none;font-size:.78rem;color:var(--muted);margin-bottom:.6rem;">
+-        <?= h(t('sec_nok_empty_for_afo')) ?>
+-    </div>
+-    <input type="hidden" name="nok[134]" id="nok_134" value="0">
+-    <div class="row g-0" id="nok-groups-container"></div>
+-    </div>
+-</div>
+-
+ <!-- ÔöÇÔöÇ 05 Z├íznam prostoj┼» ÔöÇÔöÇ -->
+ <div class="card-dvd mb-3" id="sec-tech">
+     <div class="card-header-dvd" data-collapsible>
+@@ -407,7 +389,24 @@ require APP_ROOT . '/includes/layout.php';
+     </div>
+ </div>
+ 
+-<?php /* ?>
++<!-- ÔöÇÔöÇ 06 NOK z├íznamy ÔöÇÔöÇ -->
++<div class="card-dvd mb-3" id="sec-nok">
++    <div class="card-header-dvd" data-collapsible>
++        <span class="s-num">06</span>
++        <span class="s-title"><i class="bi bi-x-octagon me-2" style="color:var(--accent2)"></i><?= t('sec_nok') ?>
++            <span id="nok-badge" style="display:none;background:rgba(255,107,53,.18);color:var(--accent2);font-family:var(--mono);font-size:.62rem;border-radius:3px;padding:.1rem .4rem;margin-left:.5rem"></span>
++        </span>
++        <i class="bi bi-chevron-down s-toggle"></i>
++    </div>
++    <div class="card-body-dvd">
++    <div id="nok-empty-hint" style="display:none;font-size:.78rem;color:var(--muted);margin-bottom:.6rem;">
++        <?= h(t('sec_nok_empty_for_afo')) ?>
++    </div>
++    <input type="hidden" name="nok[134]" id="nok_134" value="0">
++    <div class="row g-0" id="nok-groups-container"></div>
++    </div>
++</div>
++
+ <!-- ÔöÇÔöÇ 07 Hodinov├ę sledov├ín├ş ÔöÇÔöÇ -->
+ <div class="card-dvd mb-3" id="sec-hourly">
+     <div class="card-header-dvd" data-collapsible>
+@@ -420,7 +419,6 @@ require APP_ROOT . '/includes/layout.php';
+         <div class="hourly-grid" id="hourly-container"></div>
+     </div>
+ </div>
+-<?php */ ?>
+ 
+ <!-- ÔöÇÔöÇ 08 OEE Preview ÔöÇÔöÇ -->
+ <div class="card-dvd mb-3" id="sec-oee">
+@@ -1264,14 +1262,6 @@ function recalcDowntimeRowMinutes(row) {
+     const minutes = computeDowntimeMinutesFromRange(odInput.value, doInput.value);
+     if (minutes === null) return;
+     minInput.value = String(minutes);
+-
+-    // Kontrola platnosti ─Źasov├ęho rozmez├ş v┼»─Źi sm─Ťn─Ť
+-    const isValid = validateDowntimeRow(row);
+-    if (!isValid && odInput.value && doInput.value) {
+-        const { shiftOd, shiftDo } = getCurrentShiftBounds();
+-        showToast('warn', `ÔÜá Prostoj (${odInput.value} - ${doInput.value}) je mimo ─Źas sm─Ťny (${shiftOd} - ${shiftDo})!`);
+-    }
+-
+     updateTechSum();
+ }
+ 
+@@ -1515,8 +1505,7 @@ const modal = document.getElementById('confirm-modal');
+ 
+ async function openConfirmModal(e) {
+     e.preventDefault();
+-    
+-    // Validace povinn├Żch pol├ş
++    // Validace povinn├Żch pol├ş p┼Öed zobrazen├şm modalu
+     const pracoviste = document.getElementById('pracovisite_id').value;
+     const datum = document.getElementById('input-datum').value;
+     if (!pracoviste || !datum) {
+@@ -1524,16 +1513,6 @@ async function openConfirmModal(e) {
+         document.getElementById('sec-ident').scrollIntoView({behavior:'smooth'});
+         return;
+     }
+-
+-    // NOV├ë: Kontrola, zda prostoje nejsou mimo sm─Ťnu
+-    const dtCheck = validateAllDowntimes();
+-    if (!dtCheck.allValid) {
+-        const { shiftOd, shiftDo } = getCurrentShiftBounds();
+-        showToast('error', `ÔťŚ Vlo┼żen├ę prostoje (${dtCheck.invalidCount}) jsou mimo ─Źas sm─Ťny (${shiftOd} - ${shiftDo})!`);
+-        document.getElementById('sec-tech')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+-        return;
+-    }
+-
+     if (!await validateNokConsistencyBeforeSubmit()) {
+         return;
+     }
+@@ -1632,93 +1611,6 @@ function formReset() {
+     addTechRow();
+ }
+ 
+-function getCurrentShiftBounds() {
+-    const shiftOd = document.getElementById('cas-od')?.value || (sDef[document.getElementById('input-smena')?.value]?.od || '06:00');
+-    const shiftDo = document.getElementById('cas-do')?.value || (sDef[document.getElementById('input-smena')?.value]?.do || '14:00');
+-    return { shiftOd, shiftDo };
+-}
+-
+-function isTimeRangeWithinShift(dtOd, dtDo, shiftOd, shiftDo) {
+-    if (!dtOd || !dtDo || !shiftOd || !shiftDo) return true;
+-
+-    const toMin = t => {
+-        const parts = String(t || '').split(':').map(Number);
+-        if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+-        return parts[0] * 60 + parts[1];
+-    };
+-
+-    const sOd = toMin(shiftOd);
+-    let sDo = toMin(shiftDo);
+-    let dOd = toMin(dtOd);
+-    let dDo = toMin(dtDo);
+-
+-    if (sOd === null || sDo === null || dOd === null || dDo === null) return true;
+-
+-    // No─Źn├ş sm─Ťna p┼Öes p┼»lnoc
+-    if (sDo <= sOd) sDo += 1440;
+-
+-    // ├Üprava za─Ź├ítku prostoj┼» pro no─Źn├ş sm─Ťny
+-    if (dOd < sOd && (dOd + 1440) <= sDo) {
+-        dOd += 1440;
+-    }
+-
+-    // ├Üprava konce prostoj┼»
+-    if (dDo <= (dOd % 1440)) {
+-        dDo += 1440;
+-    } else if (dOd >= 1440 && dDo < 1440) {
+-        dDo += 1440;
+-    }
+-
+-    return dOd >= sOd && dDo <= sDo;
+-}
+-
+-function validateDowntimeRow(row) {
+-    const odInput = row.querySelector('input[name$="[cas_od]"]');
+-    const doInput = row.querySelector('input[name$="[cas_do]"]');
+-    if (!odInput || !doInput) return true;
+-
+-    const od = odInput.value;
+-    const doVal = doInput.value;
+-    if (!od || !doVal) {
+-        odInput.style.borderColor = '';
+-        doInput.style.borderColor = '';
+-        return true;
+-    }
+-
+-    const { shiftOd, shiftDo } = getCurrentShiftBounds();
+-    const valid = isTimeRangeWithinShift(od, doVal, shiftOd, shiftDo);
+-
+-    if (!valid) {
+-        odInput.style.borderColor = 'var(--accent2)';
+-        doInput.style.borderColor = 'var(--accent2)';
+-        odInput.title = `Prostoj (${od}-${doVal}) je mimo ─Źas sm─Ťny (${shiftOd}-${shiftDo})`;
+-        doInput.title = `Prostoj (${od}-${doVal}) je mimo ─Źas sm─Ťny (${shiftOd}-${shiftDo})`;
+-    } else {
+-        odInput.style.borderColor = '';
+-        doInput.style.borderColor = '';
+-        odInput.title = '';
+-        doInput.title = '';
+-    }
+-
+-    return valid;
+-}
+-
+-function validateAllDowntimes() {
+-    let allValid = true;
+-    let invalidCount = 0;
+-    document.querySelectorAll('#tech-tbody tr').forEach(row => {
+-        const od = row.querySelector('input[name$="[cas_od]"]')?.value;
+-        const doVal = row.querySelector('input[name$="[cas_do]"]')?.value;
+-        if (od && doVal) {
+-            if (!validateDowntimeRow(row)) {
+-                allValid = false;
+-                invalidCount++;
+-            }
+-        }
+-    });
+-    return { allValid, invalidCount };
+-}
+-
+ // Init
+ addWorkerRow();
+ addTechRow();

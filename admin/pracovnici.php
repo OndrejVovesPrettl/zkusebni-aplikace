@@ -103,10 +103,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'sync_replace_wo
     try {
         db()->beginTransaction();
 
-        // Bezpečná aktualizace: deaktivujeme všechny, následně vložíme/zaktualizujeme ty z importu (zachováme ID starých operátorů)
-        db()->exec('UPDATE pracovnici SET aktivni = 0');
+        // Full replace mode: remove all current rows and import the file content.
+        db()->exec('DELETE FROM pracovnici');
 
-        $insertStmt = db()->prepare('INSERT INTO pracovnici (interni_id, jmeno, smennost, aktivni) VALUES (?, ?, ?, 1) ON DUPLICATE KEY UPDATE jmeno=VALUES(jmeno), smennost=VALUES(smennost), aktivni=1');
+        $insertStmt = db()->prepare('INSERT INTO pracovnici (interni_id, jmeno, smennost, aktivni) VALUES (?, ?, ?, 1)');
 
         foreach ($rows as $row) {
             $interniId = $row['interni_id'];
@@ -129,9 +129,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'sync_replace_wo
             'last_skip_reason' => null,
             'last_result' => [
                 'ok' => true,
-                'inserted_or_updated' => $imp,
+                'inserted' => $imp,
                 'skipped_invalid' => $skip,
-                'mode' => 'safe_upsert',
+                'mode' => 'full_replace',
             ],
         ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 
@@ -140,12 +140,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'sync_replace_wo
             'pracovnici',
             null,
             null,
-            ['inserted_updated' => $imp, 'skipped' => $skip, 'mode' => 'safe_upsert'],
-            'Rucni sync pracovniku (bezpečný update ze souboru)'
+            ['inserted' => $imp, 'skipped' => $skip, 'mode' => 'full_replace'],
+            'Rucni sync pracovniku (full replace ze souboru)'
         );
 
         redirect(APP_URL . '/admin/pracovnici.php?sync=1&imp=' . $imp . '&skip=' . $skip);
-    } catch (Throwable $e) {
+    } catch (Throwable) {
         if (db()->inTransaction()) {
             db()->rollBack();
         }
@@ -157,7 +157,6 @@ if (get('action') === 'delete' && get('id')) {
     db()->prepare('UPDATE pracovnici SET aktivni=0 WHERE id=?')->execute([(int)get('id')]);
     redirect(APP_URL.'/admin/pracovnici.php?ok=1');
 }
-
 if ($_SERVER['REQUEST_METHOD']==='POST' && post('action')==='save') {
     if (!verifyCsrfToken(post('_csrf'))) { http_response_code(403); die('CSRF'); }
     $id = (int)post('id');
@@ -174,12 +173,11 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && post('action')==='save') {
         if ($existing) {
             db()->prepare('UPDATE pracovnici SET interni_id=?, smennost=?, aktivni=? WHERE id=?')->execute([$interniId, $smennost, $aktivni, (int)$existing['id']]);
         } else {
-            db()->prepare('INSERT INTO pracovnici (interni_id,jmeno,smennost,aktivni) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE jmeno=VALUES(jmeno), smennost=VALUES(smennost), aktivni=VALUES(aktivni)')->execute($data);
+            db()->prepare('INSERT IGNORE INTO pracovnici (interni_id,jmeno,smennost,aktivni) VALUES (?,?,?,?)')->execute($data);
         }
     }
     redirect(APP_URL.'/admin/pracovnici.php?ok=1');
 }
-
 if ($_SERVER['REQUEST_METHOD']==='POST' && post('action')==='csv_import') {
     if (!verifyCsrfToken(post('_csrf'))) { http_response_code(403); die('CSRF'); }
     $imp=0; $skip=0;
@@ -218,9 +216,8 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && post('action')==='csv_import') {
 
         try {
             db()->beginTransaction();
-            // Bezpečná aktualizace pro CSV import
-            db()->exec('UPDATE pracovnici SET aktivni = 0');
-            $insertStmt = db()->prepare('INSERT INTO pracovnici (interni_id,jmeno,smennost,aktivni) VALUES (?,?,?,1) ON DUPLICATE KEY UPDATE jmeno=VALUES(jmeno), smennost=VALUES(smennost), aktivni=1');
+            db()->exec('DELETE FROM pracovnici');
+            $insertStmt = db()->prepare('INSERT INTO pracovnici (interni_id,jmeno,smennost,aktivni) VALUES (?,?,?,1)');
             foreach ($dedupedRows as $rowData) {
                 $insertStmt->execute($rowData);
                 $imp += 1;
@@ -238,7 +235,6 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && post('action')==='csv_import') {
     }
     $msg = t('import_ok').': '.$imp.' '.t('import_rows').', '.$skip.' '.t('import_skip');
 }
-
 $edit = null;
 if (get('edit')) $edit = get('edit')==='new' ? [] : db_row('SELECT * FROM pracovnici WHERE id=?',[(int)get('edit')]);
 $fSearch = trim((string)get('search', ''));
@@ -268,7 +264,7 @@ if (is_file($ikosSyncStateFile)) {
 $ikosSyncLabel = $ikosSyncAt ? h(date('d.m.Y H:i', strtotime($ikosSyncAt))) : '—';
 
 if (get('sync') === '1') {
-    $msg = 'Synchronizace dokončena: ' . (int)get('imp', 0) . ' záznamů zpracováno, ' . (int)get('skip', 0) . ' přeskočeno.';
+    $msg = 'Synchronizace dokončena: ' . (int)get('imp', 0) . ' záznamů vloženo, ' . (int)get('skip', 0) . ' přeskočeno.';
 } elseif (get('sync') === '0') {
     $msg = 'Synchronizace se nepodařila.';
 }

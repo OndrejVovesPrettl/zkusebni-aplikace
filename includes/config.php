@@ -31,7 +31,7 @@ define('TRACEABILITY_LOCAL_DB', getenv('TRACEABILITY_LOCAL_DB') ?: ($localSecret
 
 // ── Aplikace ──────────────────────────────────────────────────
 define('APP_NAME', 'DVD Production Tracking');
-define('APP_VERSION', '5.3.3');
+define('APP_VERSION', '5.4.0');
 define('APP_ROOT', dirname(__DIR__));
 define('APP_URL', 'http://10.67.100.69/pisek/v5.3');
 
@@ -1904,6 +1904,35 @@ function getPracovisteList(string $typ = ''): array {
     if ($typ) { $sql .= ' AND (typ=? OR typ="obe")'; $p[] = $typ; }
     return db_all($sql.' ORDER BY cislo_id', $p);
 }
+
+function ensureVstrikovnaWorkplaces(): void {
+    static $done = false;
+    if ($done) return;
+    $done = true;
+
+    $ids = [1, 4, 16, 19, 20, 22, 23, 24, 25, 26, 29, 34, 38, 41, 45, 48, 49, 52, 63, 69, 72, 73, 74, 75, 76, 77, 78, 79, 80, 82, 85, 86, 90, 97, 98, 99, 100, 101, 108, 109, 110, 111, 112, 113, 114, 123, 127, 133, 155, 161, 163, 171, 172, 173, 188];
+    $pdo = db();
+    $pracovisiteType = (string)$pdo->query("SHOW COLUMNS FROM pracovisite LIKE 'typ'")->fetchColumn(1);
+    if (!str_contains($pracovisiteType, "'vstrikovna'")) {
+        $pdo->exec("ALTER TABLE pracovisite MODIFY typ ENUM('serie','filtry','vstrikovna','obe') NOT NULL DEFAULT 'serie'");
+    }
+    $zapisyType = (string)$pdo->query("SHOW COLUMNS FROM zapisy LIKE 'typ'")->fetchColumn(1);
+    if (!str_contains($zapisyType, "'vstrikovna'")) {
+        $pdo->exec("ALTER TABLE zapisy MODIFY typ ENUM('serie','filtry','vstrikovna') NOT NULL DEFAULT 'serie'");
+    }
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $assigned = (int)db_val("SELECT COUNT(*) FROM pracovisite WHERE cislo_id IN ($placeholders) AND typ='vstrikovna'", $ids);
+    if ($assigned !== count($ids)) {
+        $pdo->prepare("UPDATE pracovisite SET typ='vstrikovna' WHERE cislo_id IN ($placeholders)")->execute($ids);
+    }
+    $recordMismatches = (int)db_val("SELECT COUNT(*) FROM zapisy z JOIN pracovisite p ON p.id=z.pracovisite_id WHERE p.cislo_id IN ($placeholders) AND z.typ <> 'vstrikovna'", $ids);
+    if ($recordMismatches > 0) {
+        $pdo->prepare("UPDATE zapisy z JOIN pracovisite p ON p.id=z.pracovisite_id SET z.typ='vstrikovna' WHERE p.cislo_id IN ($placeholders)")->execute($ids);
+    }
+}
+
+ensureVstrikovnaWorkplaces();
+
 function getPracovniciList(): array { 
     return db_all('SELECT * FROM pracovnici WHERE aktivni=1 ORDER BY jmeno'); 
 }
@@ -2421,7 +2450,10 @@ function resolveZapisyWorkerRows(PDO $pdo, array $workerRows): array {
         if ($matchedWorker !== null) {
             $interniId = trim((string)($matchedWorker['interni_id'] ?? ''));
             $workerRow['pracovnik_id'] = (ctype_digit($interniId) ? (int)$interniId : null);
-            $workerRow['jmeno'] = (string)(int)($matchedWorker['id'] ?? 0);
+            $resolvedName = normalizeZapisyWorkerValue((string)($matchedWorker['jmeno'] ?? ''), 150);
+            if ($resolvedName !== null) {
+                $workerRow['jmeno'] = $resolvedName;
+            }
         }
     }
     unset($workerRow);

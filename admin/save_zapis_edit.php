@@ -39,7 +39,7 @@ try {
     $pdo = db();
     $pdo->beginTransaction();
 
-    $typ   = in_array(post('typ'),['serie','filtry']) ? post('typ') : 'serie';
+    $typ   = in_array(post('typ'), ['serie', 'filtry', 'vstrikovna'], true) ? post('typ') : 'serie';
     $datum = post('datum') ?: date('Y-m-d');
     if (!validateDate($datum)) jsonOut(['ok'=>false,'error'=>'Invalid date'],422);
 
@@ -47,7 +47,7 @@ try {
     $mesic = (int)date('n', strtotime($datum));
     $rok   = (int)date('Y', strtotime($datum));
     $smena = post('smena','O8');
-
+    $skupina = in_array(post('skupina'), ['A', 'B', 'C', 'D']) ? post('skupina') : null;
     $pracId = post('pracovisite_id') ? (int)post('pracovisite_id') : null;
     $pw = $pracId ? db_row('SELECT * FROM pracovisite WHERE id=?',[$pracId]) : null;
 
@@ -57,19 +57,14 @@ try {
     $vyrobeno  = max(0,(int)post('vyrobeno_ks',0));
     $nokKs     = max(0,(int)post('nok_ks',0));
     $kPos      = max(0,(int)post('k_posouzeni',0));
-    
-    // Nové číselné hodnoty z inputů
-    $techKs    = max(0,(int)post('tech',0));
-    $blokKs    = max(0,(int)post('blok',0));
-    $tnzKs     = max(0,(int)post('tnz',0));
-    
-    // Vyrobeno dobře s odečty
-    $dobre     = max(0, $vyrobeno - $nokKs - $techKs - $blokKs - $tnzKs);
-    
+    $dobre     = max(0,$vyrobeno - $nokKs);
     $pracDoba  = post('pracovni_doba_min')!=='' ? (int)post('pracovni_doba_min') : null;
     $pauza     = max(0,(int)post('pauza_min',0));
     $prestas   = max(0,(int)post('prestas_min',0));
     $cistyCas  = post('cisty_cas_min')!=='' ? (int)post('cisty_cas_min') : null;
+    $tech      = max(0, (int)post('tech', 0));
+    $blok      = max(0, (int)post('blok', 0));
+    $tnz       = max(0, (int)post('tnz', 0));
 
     // Centrálně zadané prostoje
     $prostoje = [];
@@ -140,7 +135,7 @@ try {
             $oeeP = 0.0;
         }
 
-        // C) Kvalita = Dobré ks / Vyrobené ks (Záměrně sráží pouze NOK kusy)
+        // C) Kvalita = Dobré ks / Vyrobené ks
         if ($vyrobeno > 0) {
             $oeeQ = min(1.0, max(0.0, ($vyrobeno - $nokKs) / $vyrobeno));
         }
@@ -179,7 +174,7 @@ try {
 
     // UPDATE zapisy
     $stmt = $pdo->prepare("UPDATE zapisy SET
-        typ=:typ, pracovisite_id=:prac_id, cw=:cw, datum=:datum, rok=:rok, mesic=:mesic, smena=:smena,
+        typ=:typ, pracovisite_id=:prac_id, cw=:cw, datum=:datum, rok=:rok, mesic=:mesic, smena=:smena, skupina=:skupina,
         cas_prichodu=:cas_pr, cas_odchodu=:cas_od,
         pracovni_doba_min=:prac_doba, prestas_min=:prestas, pauza_min=:pauza,
         jmeno=:jmeno, pracovni_pozice=:pozice,
@@ -196,7 +191,7 @@ try {
 
     $stmt->execute([
         ':typ'=>$typ, ':prac_id'=>$pracId, ':cw'=>$cw, ':datum'=>$datum,
-        ':rok'=>$rok, ':mesic'=>$mesic, ':smena'=>$smena,
+        ':rok'=>$rok, ':mesic'=>$mesic, ':smena'=>$smena, ':skupina'=>$skupina,
         ':cas_pr'=>$casPr, ':cas_od'=>$casOd,
         ':prac_doba'=>$pracDoba, ':prestas'=>$prestas, ':pauza'=>$pauza,
         ':jmeno'=>$jmeno, ':pozice'=>$poziceSummary,
@@ -208,10 +203,7 @@ try {
         ':vyr'=>$vyrobeno, ':nok'=>$nokKs, ':pos'=>$kPos, ':dobre'=>$dobre, ':cisty'=>$cistyCas,
         ':oee_a'=>$oeeA,':oee_p'=>$oeeP,':oee_q'=>$oeeQ,':oee'=>$oeeTotal,
         ':norma'=>$normaKs,':cycle'=>$cyclMin,
-        
-        // Zde propisujeme plnohodnotná čísla!
-        ':tech'=>$techKs, ':blok'=>$blokKs, ':tnz'=>$tnzKs,
-        
+        ':tech'=>$tech, ':blok'=>$blok, ':tnz'=>$tnz,
         ':pozn'=>post('poznamky')?:null,
         ':pozn_zap'=>post('poznamka_zapisujiciho')?:null,
         ':id'=>$id,
@@ -253,8 +245,8 @@ try {
         'ZAPIS_EDIT',
         'zapisy',
         $id,
-        ['vyrobeno_ks'=>$existing['vyrobeno_ks'],'nok_ks'=>$existing['nok_ks'],'oee_procent'=>$existing['oee_procent']],
-        ['typ'=>$typ,'datum'=>$datum,'smena'=>$smena,'vyrobeno_ks'=>$vyrobeno,'nok_ks'=>$nokKs,'oee_procent'=>$oeeTotal?round($oeeTotal,4):null],
+        ['vyrobeno_ks'=>$existing['vyrobeno_ks'],'nok_ks'=>$existing['nok_ks'],'oee_procent'=>$existing['oee_procent'], 'skupina'=>$existing['skupina']],
+        ['typ'=>$typ,'datum'=>$datum,'smena'=>$smena,'skupina'=>$skupina,'vyrobeno_ks'=>$vyrobeno,'nok_ks'=>$nokKs,'oee_procent'=>$oeeTotal?round($oeeTotal,4):null],
         t('edit')." #$id – ".($pw['nazev_dilu']??'—')." ($vyrobeno ks)"
     );
 

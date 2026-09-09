@@ -1,4 +1,9 @@
-# DVD Sledování výroby – Uživatelský manuál (v5.3.3)
+# DVD Sledování výroby – Uživatelský manuál (v5.4.0)
+
+## Poznamka k verzi v5.4.0
+
+- Release `v5.4.0` sjednocuje aktuální stav aplikace, dokumentaci a produkční metadata pro finální verzi `v3.4`.
+- Uzivatelske ovladani v aplikaci zustava stejne; zmena je primarne technicka synchronizace chovani mezi vetvemi.
 
 ## Obsah
 1. [Přehled aplikace](#1-přehled-aplikace)

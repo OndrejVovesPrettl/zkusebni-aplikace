@@ -15,6 +15,8 @@ if (!validateDate($fDo)) $fDo = date('Y-m-d');
 $fPrac = get('pracovisite_id', '');
 $fSmena = get('smena', '');
 $fSearch = trim((string)get('search', ''));
+$fSkupina = strtoupper(trim((string)get('skupina', '')));
+if (!in_array($fSkupina, ['A', 'B', 'C', 'D'], true)) $fSkupina = '';
 
 $params = [':od' => $fOd, ':do' => $fDo];
 $where = ['z.datum BETWEEN :od AND :do'];
@@ -33,6 +35,10 @@ if ($fPrac !== '') {
 if ($fSmena !== '') {
     $where[] = 'z.smena = :smena';
     $params[':smena'] = $fSmena;
+}
+if ($fSkupina !== '') {
+    $where[] = 'z.skupina = :skupina';
+    $params[':skupina'] = $fSkupina;
 }
 
 if (str_starts_with($workerKey, 'manual:')) {
@@ -151,6 +157,7 @@ $records = db_all("SELECT
         z.id,
         z.datum,
         z.smena,
+    z.skupina,
         z.kod_pracovisite,
         z.nazev_pracovisite,
         z.nazev_dilu,
@@ -165,7 +172,7 @@ $records = db_all("SELECT
     $workerNameJoin
     $downtimeJoin
     $whereSql
-    GROUP BY z.id, z.datum, z.smena, z.kod_pracovisite, z.nazev_pracovisite, z.nazev_dilu, z.vyrobeno_ks, z.nok_ks, z.cisty_cas_min, z.oee_procent, dt.dt_total
+    GROUP BY z.id, z.datum, z.smena, z.skupina, z.kod_pracovisite, z.nazev_pracovisite, z.nazev_dilu, z.vyrobeno_ks, z.nok_ks, z.cisty_cas_min, z.oee_procent, dt.dt_total
     ORDER BY z.datum DESC, z.id DESC
     LIMIT 500", $params);
 
@@ -175,6 +182,7 @@ $backLink = APP_URL . '/admin/zaznamy_pracovnici.php?' . http_build_query([
     'search' => $fSearch,
     'pracovisite_id' => $fPrac,
     'smena' => $fSmena,
+    'skupina' => $fSkupina,
 ]);
 
 $pageTitle = t('nav_workers') . ' - ' . h($worker['jmeno']);
@@ -232,11 +240,11 @@ require APP_ROOT . '/includes/layout.php';
                 <div class="overflow-x">
                     <table class="tbl">
                         <thead><tr>
-                            <th>ID</th><th><?= t('datum') ?></th><th><?= t('smena') ?></th><th><?= t('pracovisite') ?></th><th><?= t('nazev_dilu') ?></th><th><?= t('produced_ks') ?></th><th><?= t('nok_ks') ?></th><th><?= t('avg_oee') ?></th><th><?= t('downtime_min') ?></th><th class="no-print"><?= t('actions') ?></th>
+                            <th>ID</th><th><?= t('datum') ?></th><th><?= t('smena') ?></th><th><?= t('group') ?></th><th><?= t('pracovisite') ?></th><th><?= t('nazev_dilu') ?></th><th><?= t('produced_ks') ?></th><th><?= t('nok_ks') ?></th><th><?= t('avg_oee') ?></th><th><?= t('downtime_min') ?></th><th class="no-print"><?= t('actions') ?></th>
                         </tr></thead>
                         <tbody>
                         <?php if (!$records): ?>
-                            <tr><td colspan="10" class="text-center py-5 text-muted-dvd"><?= t('no_data') ?></td></tr>
+                            <tr><td colspan="11" class="text-center py-5 text-muted-dvd"><?= t('no_data') ?></td></tr>
                         <?php else: foreach ($records as $record):
                             $oee = $record['oee_procent'] !== null ? round((float)$record['oee_procent'] * 100, 1) : null;
                         ?>
@@ -244,6 +252,7 @@ require APP_ROOT . '/includes/layout.php';
                                 <td class="mono text-accent">#<?= (int)$record['id'] ?></td>
                                 <td class="mono"><?= date('d.m.Y', strtotime((string)$record['datum'])) ?></td>
                                 <td class="mono"><?= h($record['smena']) ?></td>
+                                <td class="mono text-center"><?= h($record['skupina'] ?: '—') ?></td>
                                 <td><?= h($record['kod_pracovisite'] ?? '') ?><br><small class="text-muted-dvd"><?= h($record['nazev_pracovisite'] ?? '') ?></small></td>
                                 <td><?= h($record['nazev_dilu'] ?? '') ?></td>
                                 <td class="mono text-accent"><?= number_format((int)$record['vyrobeno_ks']) ?></td>

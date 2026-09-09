@@ -239,6 +239,17 @@ function applySidebarCompact(compact, persist = true) {
         }
     });
 
+    const activeItem = nav.querySelector('.nav-item a.active');
+    if (activeItem) {
+        sections.forEach((section) => {
+            if (!collectItems(section).some((item) => item.contains(activeItem))) return;
+            section.classList.remove('nav-section-collapsed');
+            section.setAttribute('aria-expanded', 'true');
+            applyVisibility(section, false);
+        });
+        requestAnimationFrame(() => activeItem.scrollIntoView({ block: 'nearest' }));
+    }
+
     const toggleForSection = (section) => {
         if (!section || !section.classList.contains('nav-section-collapsible')) return;
         const key = section.dataset.sidebarSectionKey;
@@ -268,6 +279,7 @@ function applySidebarCompact(compact, persist = true) {
     nav.addEventListener('click', (event) => {
         const section = event.target.closest('.nav-section-collapsible');
         if (!section || !nav.contains(section)) return;
+        if (event.target !== section) return;
         toggleForSection(section);
     });
 
@@ -275,6 +287,7 @@ function applySidebarCompact(compact, persist = true) {
         if (event.key !== 'Enter' && event.key !== ' ') return;
         const section = event.target.closest('.nav-section-collapsible');
         if (!section || !nav.contains(section)) return;
+        if (event.target !== section) return;
         event.preventDefault();
         toggleForSection(section);
     });

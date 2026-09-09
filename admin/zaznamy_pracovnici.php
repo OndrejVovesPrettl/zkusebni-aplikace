@@ -13,6 +13,8 @@ if (!validateDate($fDo)) $fDo = date('Y-m-d');
 $fPrac = get('pracovisite_id', '');
 $fSmena = get('smena', '');
 $fSearch = trim((string)get('search', ''));
+$fSkupina = strtoupper(trim((string)get('skupina', '')));
+if (!in_array($fSkupina, ['A', 'B', 'C', 'D'], true)) $fSkupina = '';
 $export = get('export') === 'csv';
 
 $where = ['z.datum BETWEEN :od AND :do'];
@@ -32,6 +34,10 @@ if ($fPrac !== '') {
 if ($fSmena !== '') {
     $where[] = 'z.smena = :smena';
     $params[':smena'] = $fSmena;
+}
+if ($fSkupina !== '') {
+    $where[] = 'z.skupina = :skupina';
+    $params[':skupina'] = $fSkupina;
 }
 if ($fSearch !== '') {
     $terms = preg_split('/\s+/u', $fSearch, -1, PREG_SPLIT_NO_EMPTY) ?: [];
@@ -101,6 +107,7 @@ $rows = db_all("SELECT
     COALESCE(NULLIF(p_id.jmeno, ''), NULLIF(p_interni.jmeno, ''), NULLIF(pn.jmeno, ''), zp.jmeno) AS jmeno,
     MAX(COALESCE(p_id.interni_id, p_interni.interni_id, pn.interni_id, '')) AS interni_id,
         GROUP_CONCAT(DISTINCT NULLIF(z.smena, '') ORDER BY z.smena SEPARATOR ', ') AS smeny,
+        GROUP_CONCAT(DISTINCT NULLIF(z.skupina, '') ORDER BY z.skupina SEPARATOR ', ') AS skupiny,
         COUNT(DISTINCT z.id) AS zaznamu,
         MAX(z.datum) AS posledni_datum,
         SUM(z.vyrobeno_ks) AS vyrobeno_ks,
@@ -256,6 +263,12 @@ require APP_ROOT . '/includes/layout.php';
                 <?php foreach(['R8','O8','N8','R12','N12'] as $s): ?><option <?= $fSmena === $s ? 'selected' : '' ?>><?= $s ?></option><?php endforeach; ?>
             </select>
         </div>
+        <div class="col-6 col-md-1"><label class="form-label-dvd"><?= t('group') ?></label>
+            <select name="skupina" class="form-select">
+                <option value=""><?= t('all') ?></option>
+                <?php foreach (['A', 'B', 'C', 'D'] as $skupina): ?><option value="<?= $skupina ?>" <?= $fSkupina === $skupina ? 'selected' : '' ?>><?= $skupina ?></option><?php endforeach; ?>
+            </select>
+        </div>
         <div class="col-12 col-md-2"><label class="form-label-dvd"><?= t('nav_workers') ?></label><input type="search" name="search" class="form-control" value="<?= h($fSearch) ?>" placeholder="<?= h(t('worker_namep')) ?>" list="worker-list" autocomplete="off"></div>
         <div class="col-auto d-flex gap-2 mt-1">
             <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-funnel me-1"></i><?= t('filter') ?></button>
@@ -278,6 +291,7 @@ require APP_ROOT . '/includes/layout.php';
                     <th><?= t('nav_workers') ?></th>
                     <th>ID</th>
                     <th><?= t('smena') ?></th>
+                    <th><?= t('group') ?></th>
                     <th><?= t('records_btn') ?></th>
                     <th><?= t('datum') ?></th>
                     <th><?= t('produced_ks') ?></th>
@@ -291,7 +305,7 @@ require APP_ROOT . '/includes/layout.php';
             </thead>
             <tbody>
             <?php if (!$rows): ?>
-                <tr><td colspan="12" class="text-center py-5 text-muted-dvd"><?= t('no_data') ?></td></tr>
+                <tr><td colspan="13" class="text-center py-5 text-muted-dvd"><?= t('no_data') ?></td></tr>
             <?php else: foreach ($rows as $row):
                 $oee = $row['avg_oee'] !== null ? round((float)$row['avg_oee'], 1) : null;
                 $oeeClass = $oee !== null ? ($oee >= 85 ? 'good' : ($oee >= 70 ? 'warn' : 'bad')) : '';
@@ -303,12 +317,14 @@ require APP_ROOT . '/includes/layout.php';
                     'search' => $fSearch,
                     'pracovisite_id' => $fPrac,
                     'smena' => $fSmena,
+                    'skupina' => $fSkupina,
                 ]);
             ?>
                 <tr data-href="<?= h($detailLink) ?>">
                     <td><?= h($row['jmeno']) ?></td>
                     <td class="mono"><?= h($row['interni_id'] !== '' ? $row['interni_id'] : '—') ?></td>
                     <td class="mono"><?= h($row['smeny'] ?: '—') ?></td>
+                    <td class="mono"><?= h($row['skupiny'] ?: '—') ?></td>
                     <td class="mono text-accent"><?= number_format((int)$row['zaznamu']) ?></td>
                     <td class="mono"><?= $row['posledni_datum'] ? date('d.m.Y', strtotime((string)$row['posledni_datum'])) : '—' ?></td>
                     <td class="mono text-accent"><?= number_format((int)$row['vyrobeno_ks']) ?></td>

@@ -1,0 +1,250 @@
+﻿diff --git "a/c:\\laragon\\www\\pisek\\v5.3\\admin\\prestavky.php" "b/c:\\laragon\\www\\pisek\\v3.4\\admin\\prestavky.php"
+index 1fbeaac..b588fea 100644
+--- "a/c:\\laragon\\www\\pisek\\v5.3\\admin\\prestavky.php"
++++ "b/c:\\laragon\\www\\pisek\\v3.4\\admin\\prestavky.php"
+@@ -1,138 +1,69 @@
+ <?php
+-// admin/prestavky.php ÔÇô Spr├íva ─Ź├şseln├şku p┼Öest├ívek (─îIST├ü VERZE BEZ AUTOMATICK├ŁCH RE-SEED┼«)
++// admin/prestavky.php ÔÇô Spr├íva ─Ź├şseln├şku p┼Öest├ívek
+ require_once dirname(__DIR__) . '/includes/config.php';
+ requireRole('superadmin');
+ $pageTitle = t('nav_prestavky');
+ $activePage = 'prestavky';
+ 
+-// POZOR: Odstran─Ťno vol├ín├ş ensurePrestavkyTable(), kter├ę zp┼»sobovalo neust├íl├ę znovu-vkl├íd├ín├ş a reaktivaci smazan├Żch p┼Öest├ívek!
++ensurePrestavkyTable();
+ 
+-$msg = null;
+-$msgType = 'success';
+-
+-// 1. JEDNOR├üZOV├ë VY─îI┼áT─ÜN├Ź DUPLICIT (Spust├ş se POUZE po kliknut├ş na tla─Ź├ştko u┼żivatelem)
+-if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'clean_duplicates') {
+-    if (!verifyCsrfToken(post('_csrf'))) {
+-        $msg = 'CSRF ov─Ť┼Öen├ş selhalo.';
+-        $msgType = 'danger';
+-    } else {
+-        try {
+-            db()->exec("DELETE p1 FROM prestavky p1
+-                        INNER JOIN prestavky p2 
+-                        WHERE p1.id > p2.id 
+-                          AND p1.zona = p2.zona 
+-                          AND p1.smena_kod = p2.smena_kod 
+-                          AND p1.nazev = p2.nazev");
+-            
+-            redirect(APP_URL . '/admin/prestavky.php?msg=cleaned');
+-        } catch (Throwable $e) {
+-            $msg = 'Chyba p┼Öi ─Źi┼ít─Ťn├ş: ' . $e->getMessage();
+-            $msgType = 'danger';
+-        }
+-    }
+-}
+-
+-// 2. DELETE (Trval├ę smaz├ín├ş z datab├íze)
+ if (get('action') === 'delete' && get('id')) {
+-    if (!verifyCsrfToken(get('_csrf'))) { 
+-        $msg = 'CSRF ov─Ť┼Öen├ş selhalo.'; 
+-        $msgType = 'danger';
+-    } else {
+-        try {
+-            db()->prepare('DELETE FROM prestavky WHERE id=?')->execute([(int)get('id')]);
+-            redirect(APP_URL . '/admin/prestavky.php?msg=deleted');
+-        } catch (Throwable $e) {
+-            $msg = 'Chyba p┼Öi maz├ín├ş: ' . $e->getMessage();
+-            $msgType = 'danger';
+-        }
+-    }
++    if (!verifyCsrfToken(get('_csrf'))) { http_response_code(403); die('CSRF'); }
++    db()->prepare('DELETE FROM prestavky WHERE id=?')->execute([(int)get('id')]);
++    redirect(APP_URL . '/admin/prestavky.php?ok=1');
+ }
+ 
+-// 3. TOGGLE (Zm─Ťna stavu aktivn├ş / neaktivn├ş)
+ if (get('action') === 'toggle' && get('id')) {
+-    if (!verifyCsrfToken(get('_csrf'))) { 
+-        $msg = 'CSRF ov─Ť┼Öen├ş selhalo.'; 
+-        $msgType = 'danger';
+-    } else {
+-        try {
+-            db()->prepare('UPDATE prestavky SET aktivni = 1 - aktivni WHERE id=?')->execute([(int)get('id')]);
+-            redirect(APP_URL . '/admin/prestavky.php?msg=toggled');
+-        } catch (Throwable $e) {
+-            $msg = 'Chyba p┼Öi zm─Ťn─Ť stavu: ' . $e->getMessage();
+-            $msgType = 'danger';
+-        }
+-    }
++    if (!verifyCsrfToken(get('_csrf'))) { http_response_code(403); die('CSRF'); }
++    db()->prepare('UPDATE prestavky SET aktivni = 1 - aktivni WHERE id=?')->execute([(int)get('id')]);
++    redirect(APP_URL . '/admin/prestavky.php?ok=1');
+ }
+ 
+-// 4. SAVE (Ulo┼żen├ş nov├ę / ├Üprava st├ívaj├şc├ş p┼Öest├ívky)
+ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
+-    if (!verifyCsrfToken(post('_csrf'))) { 
+-        $msg = 'CSRF ov─Ť┼Öen├ş selhalo.'; 
+-        $msgType = 'danger';
+-    } else {
+-        $id       = (int)post('id');
+-        $zona     = trim((string)post('zona'));
+-        $rezim    = (int)post('rezim_hod');
+-        $smena    = strtoupper(trim((string)post('smena_kod')));
+-        $nazev    = trim((string)post('nazev'));
+-        $casOd    = trim((string)post('cas_od'));
+-        $casDo    = trim((string)post('cas_do'));
+-        $trvani   = max(0, min(240, (int)post('trvani_min')));
+-        $poradi   = max(1, min(99, (int)post('poradi')));
+-        $aktivni  = (int)(bool)post('aktivni');
+-
+-        $rezim = in_array($rezim, [8, 12], true) ? $rezim : 8;
+-        $casOdSql = $casOd !== '' ? $casOd : null;
+-        $casDoSql = $casDo !== '' ? $casDo : null;
+-
+-        if ($zona !== '' && $smena !== '' && $nazev !== '') {
+-            try {
+-                if ($id > 0) {
+-                    db()->prepare('UPDATE prestavky SET zona=?,rezim_hod=?,smena_kod=?,nazev=?,cas_od=?,cas_do=?,trvani_min=?,poradi=?,aktivni=? WHERE id=?')
+-                        ->execute([$zona, $rezim, $smena, $nazev, $casOdSql, $casDoSql, $trvani, $poradi, $aktivni, $id]);
+-                    redirect(APP_URL . '/admin/prestavky.php?msg=updated');
+-                } else {
+-                    db()->prepare('INSERT INTO prestavky (zona,rezim_hod,smena_kod,nazev,cas_od,cas_do,trvani_min,poradi,aktivni) VALUES (?,?,?,?,?,?,?,?,?)')
+-                        ->execute([$zona, $rezim, $smena, $nazev, $casOdSql, $casDoSql, $trvani, $poradi, $aktivni]);
+-                    redirect(APP_URL . '/admin/prestavky.php?msg=inserted');
+-                }
+-            } catch (Throwable $e) {
+-                $msg = 'Chyba p┼Öi ukl├íd├ín├ş: ' . $e->getMessage();
+-                $msgType = 'danger';
+-            }
++    if (!verifyCsrfToken(post('_csrf'))) { http_response_code(403); die('CSRF'); }
++
++    $id       = (int)post('id');
++    $zona     = trim((string)post('zona'));
++    $rezim    = (int)post('rezim_hod');
++    $smena    = strtoupper(trim((string)post('smena_kod')));
++    $nazev    = trim((string)post('nazev'));
++    $casOd    = trim((string)post('cas_od'));
++    $casDo    = trim((string)post('cas_do'));
++    $trvani   = max(0, min(240, (int)post('trvani_min')));
++    $poradi   = max(1, min(20, (int)post('poradi')));
++    $aktivni  = (int)(bool)post('aktivni');
++
++    $rezim = in_array($rezim, [8, 12], true) ? $rezim : 8;
++
++    if ($zona !== '' && $smena !== '' && $nazev !== '') {
++        if ($id > 0) {
++            db()->prepare('UPDATE prestavky SET zona=?,rezim_hod=?,smena_kod=?,nazev=?,cas_od=?,cas_do=?,trvani_min=?,poradi=?,aktivni=? WHERE id=?')
++                ->execute([$zona, $rezim, $smena, $nazev, $casOd, $casDo, $trvani, $poradi, $aktivni, $id]);
+         } else {
+-            $msg = 'Vypl┼łte pros├şm v┼íechna povinn├í pole (Z├│na, Sm─Ťna, N├ízev).';
+-            $msgType = 'danger';
++            db()->prepare('INSERT INTO prestavky (zona,rezim_hod,smena_kod,nazev,cas_od,cas_do,trvani_min,poradi,aktivni) VALUES (?,?,?,?,?,?,?,?,?)')
++                ->execute([$zona, $rezim, $smena, $nazev, $casOd, $casDo, $trvani, $poradi, $aktivni]);
+         }
+     }
+-}
+ 
+-// Zpr├ívy po p┼Öesm─Ťrov├ín├ş
+-if (get('msg') === 'inserted') { $msg = 'Ôťô P┼Öest├ívka byla ├║sp─Ť┼ín─Ť vytvo┼Öena.'; $msgType = 'success'; }
+-elseif (get('msg') === 'updated') { $msg = 'Ôťô P┼Öest├ívka byla ├║sp─Ť┼ín─Ť upravena.'; $msgType = 'success'; }
+-elseif (get('msg') === 'deleted') { $msg = 'Ôťô P┼Öest├ívka byla ├║sp─Ť┼ín─Ť smaz├ína z datab├íze.'; $msgType = 'success'; }
+-elseif (get('msg') === 'toggled') { $msg = 'Ôťô Stav p┼Öest├ívky byl zm─Ťn─Ťn.'; $msgType = 'success'; }
+-elseif (get('msg') === 'cleaned') { $msg = 'Ôťô Duplicity byly ├║sp─Ť┼ín─Ť vy─Źi┼ít─Ťny.'; $msgType = 'success'; }
++    redirect(APP_URL . '/admin/prestavky.php?ok=1');
++}
+ 
+ $edit = null;
+ if (get('edit')) {
+-    if (get('edit') === 'new') {
+-        $maxPoradi = (int)db_val("SELECT MAX(poradi) FROM prestavky WHERE zona='S├ęrie' AND smena_kod='R8'");
+-        $edit = [
++    $edit = get('edit') === 'new'
++        ? [
+             'id' => 0,
+             'zona' => 'S├ęrie',
+             'rezim_hod' => 8,
+             'smena_kod' => 'R8',
+-            'nazev' => 'Nov├í p┼Öest├ívka',
++            'nazev' => 'Za─Ź├ítek sm─Ťny',
+             'cas_od' => '08:30',
+             'cas_do' => '08:40',
+             'trvani_min' => 10,
+-            'poradi' => $maxPoradi > 0 ? $maxPoradi + 1 : 1,
++            'poradi' => 1,
+             'aktivni' => 1,
+-        ];
+-    } else {
+-        $edit = db_row('SELECT * FROM prestavky WHERE id=?', [(int)get('edit')]);
+-    }
++        ]
++        : db_row('SELECT * FROM prestavky WHERE id=?', [(int)get('edit')]);
+ }
+ 
+ $list = db_all('SELECT * FROM prestavky ORDER BY zona, rezim_hod, smena_kod, poradi, id');
+@@ -151,32 +82,15 @@ require APP_ROOT . '/includes/layout.php';
+ </div>
+ 
+ <div class="content">
+-
+-<?php if ($msg !== null): ?>
+-<div class="alert mb-3" style="background:<?= $msgType === 'success' ? 'rgba(74,222,128,.12)' : 'rgba(255,107,53,.12)' ?>;border:1px solid <?= $msgType === 'success' ? 'rgba(74,222,128,.3)' : 'rgba(255,107,53,.3)' ?>;color:<?= $msgType === 'success' ? 'var(--success)' : 'var(--accent2)' ?>;border-radius:8px;padding:.6rem 1rem;font-size:.82rem">
+-    <?= h($msg) ?>
+-</div>
++<?php if (get('ok')): ?>
++<div class="alert mb-3" style="background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:var(--success);border-radius:8px;padding:.6rem 1rem;font-size:.82rem">Ôťô <?= t('saved') ?></div>
+ <?php endif; ?>
+ 
+-<!-- Tla─Ź├ştko pro jednor├ízovou o─Źistu datab├íze -->
+-<div class="card-dvd mb-3 no-print">
+-    <div class="card-body-dvd d-flex align-items-center justify-content-between gap-3">
+-        <span style="font-size:.78rem;color:var(--muted)">Spr├íva ─Ź├şseln├şku p┼Öest├ívek. Na─Źten├ş str├ínky neprov├íd├ş ┼ż├ídn├ę automatick├ę zm─Ťny v DB.</span>
+-        <form method="post" style="margin:0">
+-            <input type="hidden" name="action" value="clean_duplicates">
+-            <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+-            <button type="submit" class="btn-outline danger" style="padding:.28rem .7rem;font-size:.78rem" onclick="return confirm('Opravdu vy─Źistit duplicitn├ş z├íznamy ze stejn├Żm n├ízvem a sm─Ťnou?')">
+-                <i class="bi bi-trash3 me-1"></i>Vy─Źistit duplicity z DB
+-            </button>
+-        </form>
+-    </div>
+-</div>
+-
+ <?php if ($edit !== null): $e = $edit; ?>
+ <div class="card-dvd mb-4">
+     <div class="card-header-dvd">
+         <span class="s-num"><?= empty($e['id']) ? t('novy_item') : t('edit') ?></span>
+-        <span class="s-title"><?= empty($e['id']) ? t('add') : h($e['zona'] ?? '') . ' / ' . h($e['smena_kod'] ?? '') ?></span>
++        <span class="s-title"><?= empty($e['id']) ? t('add') : h($e['zona']) . ' / ' . h($e['smena_kod']) ?></span>
+     </div>
+     <div class="card-body-dvd">
+     <form method="post">
+@@ -218,7 +132,7 @@ require APP_ROOT . '/includes/layout.php';
+             </div>
+             <div class="col-6 col-md-2">
+                 <label class="form-label-dvd"><?= t('smeny_poradi') ?></label>
+-                <input type="number" name="poradi" class="form-control" min="1" max="99" value="<?= (int)($e['poradi'] ?? 1) ?>">
++                <input type="number" name="poradi" class="form-control" min="1" max="20" value="<?= (int)($e['poradi'] ?? 1) ?>">
+             </div>
+             <div class="col-6 col-md-2 d-flex align-items-end">
+                 <div class="form-check form-switch mb-2">
+@@ -262,13 +176,13 @@ require APP_ROOT . '/includes/layout.php';
+         <tbody>
+         <?php foreach ($list as $row): ?>
+         <tr class="<?= $row['aktivni'] ? '' : 'opacity-50' ?>">
+-            <td><strong><?= h($row['zona']) ?></strong></td>
++            <td><?= h($row['zona']) ?></td>
+             <td><?= (int)$row['rezim_hod'] ?>h</td>
+             <td><strong><?= h($row['smena_kod']) ?></strong></td>
+             <td><?= h($row['nazev']) ?></td>
+-            <td><?= h(substr((string)($row['cas_od'] ?? ''), 0, 5)) ?></td>
+-            <td><?= h(substr((string)($row['cas_do'] ?? ''), 0, 5)) ?></td>
+-            <td><strong><?= (int)$row['trvani_min'] ?> min</strong></td>
++            <td><?= h(substr((string)$row['cas_od'], 0, 5)) ?></td>
++            <td><?= h(substr((string)$row['cas_do'], 0, 5)) ?></td>
++            <td><?= (int)$row['trvani_min'] ?> min</td>
+             <td><?= (int)$row['poradi'] ?></td>
+             <td>
+                 <span style="font-size:.75rem;padding:.2rem .5rem;border-radius:4px;
+@@ -302,4 +216,4 @@ require APP_ROOT . '/includes/layout.php';
+ </div>
+ 
+ </div>
+-<?php require APP_ROOT . '/includes/layout.php'; ?>
+\ No newline at end of file
++<?php require APP_ROOT . '/includes/layout_end.php'; ?>

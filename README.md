@@ -1,4 +1,4 @@
-# DVD Sledování výroby v5.3.3 - Instalační a provozní příručka
+# DVD Sledování výroby v5.4.0 - Instalační a provozní příručka
 
 ## Struktura projektu
 
@@ -46,7 +46,7 @@ dvd/                                ← Složka aplikace (URL dle APP_URL)
 │   └── pracovisite.php             ← JSON API pro data pracoviště
 │
 ├── includes/
-    ├── config.php                  ← Bootstrap + DB + helpery (APP_VERSION 5.3.3)
+    ├── config.php                  ← Bootstrap + DB + helpery (APP_VERSION 5.4.0)
 │   ├── config.local.php.example    ← Lokální konfigurace
 │   ├── import_runtime.php          ← Sdílené mapování/import helpery
 │   ├── import_excel.py             ← Parser Excel/CSV
@@ -78,6 +78,12 @@ dvd/                                ← Složka aplikace (URL dle APP_URL)
 ├── uploads/tmp/                    ← Locky + runtime state soubory (logy a tmp data negitovat)
 └── backupSQL/                      ← Lokální SQL zálohy mimo git
 ```
+
+## Co je nove ve v5.3.4
+
+- `v3.4` byla synchronizovana s implementaci `v5.3` pro klicove soubory formularoveho toku a administrace.
+- Sjednocene soubory: `index.php`, `includes/config.php`, `admin/nok_kody.php`, `admin/prestavky.php`, `admin/zaznamy_pracovnici.php`, `admin/zaznamy_pracovnici_detail.php`.
+- NOK editor, prestavky a reporty pracovniku odpovidaji stejnemu funkcionalnimu stavu jako ve vetvi `v5.3`.
 
 ## Co je nové ve v5.3.3
 

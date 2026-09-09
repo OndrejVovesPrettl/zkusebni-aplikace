@@ -100,7 +100,7 @@ $positionSummary = $workers
 <!-- Print header -->
 <div class="d-none d-print-block mb-3" style="border-bottom:2px solid #000;padding-bottom:.5rem">
     <h5 style="margin:0;font-size:13pt">Záznam směny #<?= $id ?> – <?= h($z['nazev_dilu']??'') ?></h5>
-    <div style="font-size:9pt;color:#444"><?= date('d.m.Y',strtotime($z['datum'])) ?> | <?= h($z['smena']) ?> | <?= h($workerSummary ?: '—') ?></div>
+    <div style="font-size:9pt;color:#444"><?= date('d.m.Y',strtotime($z['datum'])) ?> | <?= h($z['smena']) ?> | Skupina <?= h($z['skupina'] ?? '—') ?> | <?= h($workerSummary ?: '—') ?></div>
 </div>
 
 <div class="row g-3">
@@ -138,7 +138,7 @@ $positionSummary = $workers
     <div class="row g-2" style="font-size:.82rem">
         <?php $sf = [
             [t('label_date'), date('d.m.Y',strtotime($z['datum'])).' (KT '.$z['cw'].')'],
-            [t('label_shift'), $z['smena']], [t('label_arrival'), $z['cas_prichodu'] ? date('H:i',strtotime($z['cas_prichodu'])) : '—'],
+            [t('label_shift'), $z['smena']], ['Skupina', $z['skupina'] ?? '—'], [t('label_arrival'), $z['cas_prichodu'] ? date('H:i',strtotime($z['cas_prichodu'])) : '—'],
             [t('label_departure'), $z['cas_odchodu'] ? date('H:i',strtotime($z['cas_odchodu'])) : '—'],
             [t('label_work_time'), ($z['pracovni_doba_min']??'—').' min'],
             [t('label_break'), ($z['pauza_min']??0).' min'],

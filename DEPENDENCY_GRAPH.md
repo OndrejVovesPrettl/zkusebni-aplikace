@@ -1,4 +1,4 @@
-# Dependency Graph (v5.3.3)
+# Dependency Graph (v5.4.0)
 
 Tento soubor popisuje zavislosti mezi hlavni casti aplikace DVD Sledovani vyroby.
 
@@ -104,6 +104,8 @@ graph TD
 
 ## Poznamky
 - Primarni aplikacni databaze je `dvd_vyroba`, traceability data pouzivaji i `traceability2`.
+- **v5.4.0**: Release verze shrnuje stabilní stav `v3.4`, upravuje release metadata, doplnění dokumentace a finalizaci nulové výroby v `index.php`.
+- **v5.3.4**: Kodova zakladna `v3.4` byla synchronizovana se stavem `v5.3` v souborech `index.php`, `includes/config.php`, `admin/nok_kody.php`, `admin/prestavky.php`, `admin/zaznamy_pracovnici.php`, `admin/zaznamy_pracovnici_detail.php`.
 - **v5.3.3**: `index.php` sekce 02 pocita `Pauza` dynamicky podle casoveho prekryvu zaznamu s tabulkou `prestavky` (typ, rezim, smena).
 - **v5.3.2**: NOK editor (`admin/nok_kody.php`) podporuje filtraci, pridani/odebrani kodu a role-based viditelnost rebuildu z Excelu pouze pro `superadmin`.
 - **v5.3.2**: Import pracovniku (`admin/pracovnici.php`) je sjednocen na full replace + deduplikaci podle `interni_id`.

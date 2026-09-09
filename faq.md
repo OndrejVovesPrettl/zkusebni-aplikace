@@ -37,3 +37,6 @@ V menu otevřete Správa → DVD → Směny. Stránka `admin/smeny.php` umožňu
 
 ## Jak změním jazyk na traceability terminálu?
 Naskenujte příkaz `en`, `cz` nebo `ua` přímo čtečkou. Jazyk se přepne okamžitě bez nutnosti klikat na UI.
+
+## Co obsahuje release v5.4.0?
+Release `v5.4.0` je finální stabilní release pro aktuální stav aplikace, včetně aktualizovaného verzování, dokumentace a potvrzení nulové výroby v hlavním formuláři.

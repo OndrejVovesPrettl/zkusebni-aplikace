@@ -74,6 +74,7 @@ $pracovisteSuggest = array_map(static function (array $pw): array {
         'projekt' => (string)($pw['projekt'] ?? ''),
         'verze' => (string)($pw['verze'] ?? ''),
         'afo' => (string)($pw['kod_pracovisite'] ?? ''),
+        'oznaceni' => (string)($pw['oznaceni'] ?? ''),
         'nazev' => (string)($pw['nazev_pracovisite'] ?? ''),
         'dil' => (string)($pw['nazev_dilu'] ?? ''),
         'sap' => (string)($pw['sap_cislo'] ?? ''),
@@ -123,6 +124,7 @@ $jsLang = [
 ?>
 <script>
 window.LANG_TEXT = <?= json_encode($jsLang) ?>;
+window.SHIFT_REF_DATE = '<?= defined('SHIFT_REF_DATE_FILTRY') ? SHIFT_REF_DATE_FILTRY : '2026-08-03' ?>';
 </script>
 <?php
 require APP_ROOT . '/includes/layout.php';
@@ -167,11 +169,21 @@ require APP_ROOT . '/includes/layout.php';
 </div>
 <?php endif; ?>
 
+<style>
+/* Oprava prohlížečového autocomplete (zbělení pole) */
+.form-control:-webkit-autofill,
+.form-control:-webkit-autofill:hover, 
+.form-control:-webkit-autofill:focus, 
+.form-control:-webkit-autofill:active {
+    transition: background-color 5000s ease-in-out 0s !important;
+    -webkit-text-fill-color: var(--text) !important;
+}
+</style>
 <form id="main-form" novalidate <?= canWrite()?'':'disabled' ?> style="<?= canWrite()?'':'opacity:0.5;pointer-events:none' ?>">
 <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
 <input type="hidden" name="typ" id="input-typ" value="serie">
 
-<!-- Přepínač Série / Filtry -->
+<!-- Přepínač typu výroby -->
 <div class="type-switch">
     <div class="type-btn active" id="btn-serie" onclick="setTyp('serie')">
         <span class="tb-icon">⚙</span>
@@ -182,6 +194,11 @@ require APP_ROOT . '/includes/layout.php';
         <span class="tb-icon">⚡</span>
         <div class="tb-label"><?= t('type_filtry') ?></div>
         <div class="tb-sub"><?= t('filters_production') ?></div>
+    </div>
+    <div class="type-btn" id="btn-vstrikovna" onclick="setTyp('vstrikovna')">
+        <span class="tb-icon"><i class="bi bi-droplet"></i></span>
+        <div class="tb-label"><?= t('type_vstrikovna') ?></div>
+        <div class="tb-sub"><?= t('injection_production') ?></div>
     </div>
 </div>
 
@@ -262,6 +279,15 @@ require APP_ROOT . '/includes/layout.php';
                 <?php foreach ($smenyList as $i => $sm): ?>
                 <option value="<?= h($sm['kod']) ?>"<?= $i === 0 ? ' selected' : '' ?>><?= h($sm['nazev']) ?></option>
                 <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label-dvd">Skupina <span class="req">*</span></label>
+            <select name="skupina" id="input-skupina" class="form-select" required>
+                <option value="A">Směna A</option>
+                <option value="B">Směna B</option>
+                <option value="C">Směna C</option>
+                <option value="D">Směna D</option>
             </select>
         </div>
         <div class="col-6 col-md-2">
@@ -454,12 +480,12 @@ require APP_ROOT . '/includes/layout.php';
 <div id="confirm-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);align-items:center;justify-content:center;">
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:420px;width:90%;box-shadow:0 25px 50px -12px rgba(0,0,0,.5);transform:scale(1);transition:transform .2s;">
         <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
-            <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-question-circle me-2 text-accent"></i><?= t('confirm_save_title') ?></h5>
+            <h5 id="confirm-modal-title" style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-question-circle me-2 text-accent"></i><?= t('confirm_save_title') ?></h5>
             <button onclick="closeConfirmModal()" style="background:transparent;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;line-height:1;">&times;</button>
         </div>
         <div style="padding:1.5rem;color:var(--text);font-size:.9rem;line-height:1.6;">
-            <p style="margin:0 0 .75rem 0;"><?= t('confirm_save_msg') ?></p>
-            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.75rem 1rem;font-size:.8rem;color:var(--muted);">
+            <p id="confirm-modal-msg" style="margin:0 0 .75rem 0;"><?= t('confirm_save_msg') ?></p>
+            <div id="confirm-modal-note" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.75rem 1rem;font-size:.8rem;color:var(--muted);">
                 <i class="bi bi-info-circle me-2 text-accent"></i><?= t('confirm_save_note') ?>
             </div>
         </div>
@@ -501,14 +527,32 @@ require APP_ROOT . '/includes/layout.php';
 <!-- ====== TISKOVÁ ŠABLONA START ====== -->
 <style>
 @media print {
+    /* Resetování obalů, aby prohlížeč neusekl tisk po první stránce */
+    html, body, .content { 
+        height: auto !important; 
+        min-height: auto !important; 
+        overflow: visible !important; 
+        display: block !important; 
+        position: static !important; 
+    }
+    
     .topbar, .content > *:not(#tisk-sekce), #toast-area, .type-switch, #confirm-modal { display: none !important; }
     body { background: white !important; margin: 0; padding: 0; font-family: Arial, sans-serif; }
     #tisk-sekce { display: block !important; width: 100%; color: black; }
-    /* Zmenšený okraj na 5mm pro maximální využití místa */
-    @page { size: A4 portrait; margin: 5mm; }
-    .tisk-strana { page-break-after: always; width: 100%; }
-    .tisk-strana:last-child { page-break-after: auto; }
-    .tisk-tabulka { width: 100%; border-collapse: collapse; margin-bottom: 4px; font-size: 9pt; }
+    @page { size: A4 portrait; margin: 8mm; }
+    
+    /* Vynucení zalomení stránky - podpora starších i moderních prohlížečů */
+    .tisk-strana { 
+        page-break-after: always; 
+        break-after: page; 
+        width: 100%; 
+    }
+    .tisk-strana:last-child { 
+        page-break-after: auto; 
+        break-after: auto; 
+    }
+    
+    .tisk-tabulka { width: 100%; border-collapse: collapse; margin-bottom: 5px; font-size: 9pt; }
     .tisk-tabulka th, .tisk-tabulka td { border: 2px solid black; padding: 2px; text-align: center; vertical-align: middle; }
     .tisk-text-left { text-align: left !important; }
     .tisk-bold { font-weight: bold; }
@@ -521,35 +565,87 @@ require APP_ROOT . '/includes/layout.php';
     <!-- STRANA 1 -->
     <div class="tisk-strana" id="tisk-strana-1">
         
-        <!-- HLAVIČKA (snížená výška) -->
-        <table class="tisk-tabulka">
+       <!-- HLAVIČKA -->
+        <table class="tisk-tabulka" style="table-layout: fixed;">
+            <colgroup>
+                <col style="width:13%">
+                <col style="width:12%">
+                <col style="width:5%">
+                <col style="width:15%">
+                <col style="width:12.5%">
+                <col style="width:12.5%">
+                <col style="width:12%">
+                <col style="width:18%">
+            </colgroup>
+            
             <tr>
-                <td rowspan="2" style="width:30%; color:#d32f2f; font-size:22pt; font-weight:900; letter-spacing:1px; text-align:center;">PRETTL<br><span style="font-size:9pt; color:#555; letter-spacing:0px;">automotive</span></td>
-                <td class="tisk-seda tisk-bold" style="font-size:14pt; width:70%;">Proces</td>
+                <td colspan="2" rowspan="2" style="color:#d32f2f; font-size:24pt; font-weight:900; letter-spacing:1px;">PRETTL<br><span style="font-size:9pt; color:#555; letter-spacing:0px;">automotive</span></td>
+                <td colspan="4" class="tisk-seda tisk-bold" style="font-size:14pt;">Proces</td>
+                <td colspan="2" class="tisk-bold" style="font-size:11pt;">Formulář</td>
             </tr>
+            
             <tr>
-                <td class="tisk-bold" style="font-size:18pt; text-transform:uppercase; height:35px;">Sledování výroby</td>
+                <td colspan="4" rowspan="5" class="tisk-bold" style="font-size:26pt; text-transform:uppercase;">Sledování výroby</td>
+                <td colspan="2" class="tisk-bold" style="font-size:10pt;">Sledování výroby</td>
             </tr>
+            
             <tr>
-                <td class="tisk-seda tisk-bold" style="font-size:12pt; height:30px;">ID pracoviště</td>
-                <td class="tisk-bold" style="font-size:22pt; background-color:#f2f2f2;" id="tisk-id-pracoviste"></td>
+                <td rowspan="2" class="tisk-seda tisk-bold tisk-text-left" style="font-size:8pt; padding-left:4px;">Kód související<br>směrnice</td>
+                <td rowspan="2" style="font-size:9pt;">IS-H-01</td>
+                <td class="tisk-seda tisk-bold tisk-text-left" style="font-size:8pt; padding-left:4px;">Zpracoval:</td>
+                <td class="tisk-text-left" style="font-size:9pt; padding-left:4px;">O. Voves</td>
+            </tr>
+            
+            <tr>
+                <td class="tisk-seda tisk-bold tisk-text-left" style="font-size:8pt; padding-left:4px;">Přezkoumal:</td>
+                <td class="tisk-text-left" style="font-size:9pt; padding-left:4px;">F. Římek</td>
+            </tr>
+            
+            <tr>
+                <td rowspan="2" class="tisk-seda tisk-bold tisk-text-left" style="font-size:8pt; padding-left:4px;">Kód souvisejícího<br>MP</td>
+                <td rowspan="2" style="font-size:9pt;">N/A</td>
+                <td class="tisk-seda tisk-bold tisk-text-left" style="font-size:8pt; padding-left:4px;">Schválil:</td>
+                <td class="tisk-text-left" style="font-size:9pt; padding-left:4px;">F. Sokol</td>
+            </tr>
+            
+            <tr>
+                <td colspan="2" id="tisk-revize-varovani" class="tisk-bold" style="background-color:#ff6666 !important; color:black; font-size:10pt;">!!! Proveď revizi !!!</td>
+            </tr>
+            
+            <tr>
+                <td rowspan="2" class="tisk-seda tisk-bold tisk-text-left" style="font-size:8pt; padding-left:4px;">Číslo Přílohy</td>
+                <td rowspan="2" style="font-size:9pt;">P-002</td>
+                
+                <td rowspan="2" class="tisk-bold" style="font-size:16pt; border-right:none; text-align:right;">ID</td>
+                <td rowspan="2" class="tisk-bold" style="font-size:24pt; border-left:none; text-align:left; padding-left:10px;" id="tisk-id-pracoviste"></td>
+                
+                <td rowspan="2" style="font-size:7.5pt;">Aktualizace DVD<br><br><span id="tisk-akt-dvd">01.02.2026</span></td>
+                <td rowspan="2" style="font-size:7.5pt;">Označení pracoviště<br><br><span id="tisk-ozn-prac">Pol</span></td>
+                
+                <td class="tisk-seda tisk-bold tisk-text-left" style="font-size:8pt; padding-left:4px;">Verze :</td>
+                <td class="tisk-text-left" style="font-size:9pt; padding-left:4px;" id="tisk-verze">06</td>
+            </tr>
+            
+            <tr>
+                <td class="tisk-seda tisk-bold tisk-text-left" style="font-size:8pt; padding-left:4px;">Datum :</td>
+                <td class="tisk-text-left" style="font-size:9pt; padding-left:4px;" id="tisk-datum-revize">01.09.2026</td>
             </tr>
         </table>
 
-        <!-- PROJEKT (snížená výška) -->
+        <!-- PROJEKT -->
         <table class="tisk-tabulka">
-            <tr class="tisk-seda tisk-bold" style="height:18px; font-size: 8pt;">
+            <tr class="tisk-seda tisk-bold" style="height:22px;">
                 <td style="width:20%">Zákazník</td><td style="width:20%">Název projektu</td><td style="width:20%">AFO, Pracoviště</td><td style="width:20%">Název dílu</td><td style="width:20%">SAP číslo dílu</td>
             </tr>
-            <tr class="tisk-bold" style="font-size:11pt; height:25px;">
+            <tr class="tisk-bold" style="font-size:12pt; height:30px;">
                 <td id="tisk-zakaznik"></td><td id="tisk-projekt"></td><td id="tisk-afo"></td><td id="tisk-dil"></td><td id="tisk-sap"></td>
             </tr>
         </table>
 
-        <!-- PRACOVNÍK A SMĚNA (snížená výška) -->
+        <!-- PRACOVNÍK A SMĚNA -->
         <table class="tisk-tabulka">
             <tr>
-                <td class="tisk-seda" style="width:22%; height:20px;">příjmení:</td>
+                <td class="tisk-seda" style="width:22%; height:22px;">příjmení:</td>
                 <td class="tisk-seda" style="width:24%;">datum příchodu na směnu</td>
                 <td class="tisk-seda" style="width:10%;">směna:</td>
                 <td class="tisk-bold" style="width:28%; padding:0;">
@@ -561,73 +657,59 @@ require APP_ROOT . '/includes/layout.php';
             </tr>
             <tr>
                 <td rowspan="3"></td>
-                <td style="height:20px;"></td>
+                <td style="height:22px;"></td>
                 <td class="tisk-seda" rowspan="3">norma ks</td>
                 <td rowspan="3" id="tisk-normy-8h" style="padding: 2px 0;"></td>
                 <td rowspan="3" id="tisk-normy-12h" style="padding: 2px 0;"></td>
             </tr>
             <tr>
-                <td class="tisk-seda" style="height:20px;">
+                <td class="tisk-seda" style="height:22px;">
                     <div style="display:flex; justify-content:space-around; align-items:center;"><span>čas OD</span><span>čas DO</span></div>
                 </td>
             </tr>
-            <tr><td style="height:20px;"></td></tr>
+            <tr><td style="height:22px;"></td></tr>
         </table>
 
         <!-- TABULKY VAD A VÝSLEDKŮ -->
-        <div style="display: flex; gap: 8px; align-items: stretch; margin-top: 4px;">
+        <div style="display: flex; gap: 8px; align-items: stretch; margin-top: 5px;">
             <div style="width: 50%; display: flex; flex-direction: column;">
-                <table class="tisk-tabulka" style="margin-bottom:4px;">
+                <table class="tisk-tabulka" style="margin-bottom:5px;">
                     <thead>
-                        <tr class="tisk-seda"><th style="width:15%">kód vady</th><th>POPIS VADY</th><th style="width:12%">Q stop</th><th style="width:20%">CELKEM NOK</th></tr>
+                        <tr class="tisk-seda">
+                            <th style="width:12%; height:20px;">kód<br>vady</th><th style="width:56%">POPIS VADY</th><th style="width:12%">Q<br>stop</th><th style="width:20%">CELKEM<br>NOK</th>
+                        </tr>
                     </thead>
                     <tbody id="tisk-nok-levy"></tbody>
                 </table>
                 <table class="tisk-tabulka" style="margin-top: auto; margin-bottom:0;">
-                     <tr><td class="tisk-bold tisk-text-left" style="width:50%; height:22px; font-size:10pt; padding-left:10px;">OK ks:</td><td></td></tr>
-                     <tr><td class="tisk-bold tisk-text-left" style="height:22px; font-size:10pt; padding-left:10px;">NOK ks:</td><td></td></tr>
-                     <tr><td class="tisk-bold tisk-text-left" style="height:22px; font-size:10pt; padding-left:10px;">Celkem vyrobeno:</td><td></td></tr>
+                     <tr><td class="tisk-bold tisk-text-left" style="width:68%; height:25px; font-size:11pt; padding-left:10px;">OK ks:</td><td style="width:32%"></td></tr>
+                     <tr><td class="tisk-bold tisk-text-left" style="height:25px; font-size:11pt; padding-left:10px;">NOK ks:</td><td></td></tr>
+                     <tr><td class="tisk-bold tisk-text-left" style="height:25px; font-size:11pt; padding-left:10px;">Celkem vyrobeno:</td><td></td></tr>
                 </table>
             </div>
             
             <div style="width: 50%; display: flex; flex-direction: column;">
-                <table class="tisk-tabulka" style="margin-bottom:4px;">
+                <table class="tisk-tabulka" style="margin-bottom:5px;">
                     <thead>
-                        <tr class="tisk-seda"><th style="width:15%">kód vady</th><th>POPIS VADY</th><th style="width:12%">Q stop</th><th style="width:20%">CELKEM NOK</th></tr>
+                        <tr class="tisk-seda">
+                            <th style="width:12%; height:20px;">kód<br>vady</th><th style="width:56%">POPIS VADY</th><th style="width:12%">Q<br>stop</th><th style="width:20%">CELKEM<br>NOK</th>
+                        </tr>
                     </thead>
                     <tbody id="tisk-nok-pravy"></tbody>
                 </table>
                 <table class="tisk-tabulka" style="margin-top: auto; margin-bottom:0;">
-                    <tr><td class="tisk-bold" style="width:15%; height:22px; font-size:10pt;">Tech</td><td class="tisk-text-left" style="font-size:9pt; padding-left:10px;">Technologie</td><td style="width:12%">x</td><td style="width:20%"></td></tr>
-                    <tr><td class="tisk-bold" style="height:22px; font-size:10pt;">Blok</td><td class="tisk-text-left" style="font-size:9pt; padding-left:10px;">Blokace</td><td>x</td><td></td></tr>
-                    <tr><td class="tisk-bold" style="height:22px; font-size:10pt;">TNZ</td><td class="tisk-text-left" style="font-size:9pt; padding-left:10px;">TNZ</td><td>x</td><td></td></tr>
+                    <tr><td class="tisk-bold" style="width:12%; height:25px; font-size:10pt;">Tech</td><td class="tisk-text-left" style="width:56%; font-size:10pt; padding-left:10px;">Technologie</td><td style="width:12%"></td><td style="width:20%"></td></tr>
+                    <tr><td class="tisk-bold" style="height:25px; font-size:10pt;">Blok</td><td class="tisk-text-left" style="font-size:10pt; padding-left:10px;">Blokace</td><td></td><td></td></tr>
+                    <tr><td class="tisk-bold" style="height:25px; font-size:10pt;">TNZ</td><td class="tisk-text-left" style="font-size:10pt; padding-left:10px;">TNZ</td><td></td><td></td></tr>
                 </table>
             </div>
         </div>
-
-        <!-- SLOVNÍČEK PROSTOJŮ -->
-        <div style="display: flex; gap: 8px; margin-top: 4px;">
-            <table class="tisk-tabulka" style="width: 50%; table-layout: fixed; font-size: 7pt; margin-bottom: 0;">
-                <tr><td colspan="9" class="tisk-seda tisk-bold" style="font-size:10pt; height:20px;">Neplánované prostoje</td></tr>
-                <tr class="tisk-bold tisk-seda"><td>Q1</td><td>Q2</td><td>Q4</td><td>V1</td><td>V2</td><td>V3</td><td>L1</td><td>L2</td><td>O1</td></tr>
-                <tr style="vertical-align: top; text-align: center;">
-                    <td style="padding: 1px;">nekvalitní<br>vstupní<br>materiál</td><td style="padding: 1px;">změna<br>šarže<br>(požadave<br>k Q)</td><td style="padding: 1px;">uvolnění<br>výroby</td><td style="padding: 1px;">chybí<br>pracovník</td><td style="padding: 1px;">chybějící<br>materiál -<br>výroba</td><td style="padding: 1px;">seřízení<br>linky</td><td style="padding: 1px;">chybějící<br>materiál -<br>sklad</td><td style="padding: 1px;">čekání na<br>materiál<br>(manipula<br>nt)</td><td style="padding: 1px;">ostatní</td>
-                </tr>
-            </table>
-            <table class="tisk-tabulka" style="width: 50%; table-layout: fixed; font-size: 7pt; margin-bottom: 0;">
-                <tr><td colspan="9" class="tisk-seda tisk-bold" style="font-size:10pt; height:20px;">Plánované prostoje</td></tr>
-                <tr class="tisk-bold tisk-seda"><td>P1</td><td>P2</td><td>P3</td><td>P4</td><td>P5</td><td>P6</td><td>P7</td><td>P8</td><td>P9</td></tr>
-                <tr style="vertical-align: top; text-align: center;">
-                    <td style="padding: 1px;">změna<br>verze,<br>výroby,<br>formy</td><td style="padding: 1px;">rozjezd<br>linky,<br>natápění<br>vstřikolisu</td><td style="padding: 1px;">vzorkování<br>, testování,<br>DUMMY</td><td style="padding: 1px;">čištění,<br>údržba,<br>výměna el.</td><td style="padding: 1px;">schůzky,<br>školení</td><td style="padding: 1px;">školitel<br>(učitel)</td><td style="padding: 1px;">zaškolovan<br>ý (žák)</td><td style="padding: 1px;">změna<br>pracoviště</td><td style="padding: 1px;">inventura</td>
-                </tr>
-            </table>
-        </div>
     </div>
 
-    <!-- STRANA 2 (Hodinové sledování) -->
+    <!-- STRANA 2 (Hodinové sledování a Slovníček) -->
     <div class="tisk-strana" id="tisk-strana-2">
         <div class="tisk-bold" style="font-size:16pt; text-align:center; margin: 15px 0 10px 0;">Hodinové sledování výroby</div>
-        <!-- PROJEKT -->
+        
         <table class="tisk-tabulka">
             <tr class="tisk-seda tisk-bold" style="font-size:10pt; height:25px;">
                 <td style="width:20%">Zákazník</td><td style="width:20%">Název projektu</td><td style="width:20%">AFO, Pracoviště</td><td style="width:20%">Název dílu</td><td style="width:20%">SAP číslo dílu</td>
@@ -636,19 +718,60 @@ require APP_ROOT . '/includes/layout.php';
                 <td id="tisk-zakaznik2"></td><td id="tisk-projekt2"></td><td id="tisk-afo2"></td><td id="tisk-dil2"></td><td id="tisk-sap2"></td>
             </tr>
         </table>
-        <!-- HODINY (výška 60px pro jistotu, aby nepřetekly) -->
-        <div style="display:flex; gap:10px; margin-top:15px;">
+
+        <!-- HODINY -->
+        <div style="display:flex; gap:10px; margin-top:10px;">
             <table class="tisk-tabulka" style="width:50%">
                 <tr class="tisk-seda"><th style="height:25px;">hodina</th><th>KÓD PROSTOJE, popis, počet min</th></tr>
-                <tr><td class="tisk-bold" style="height:60px;">6 - 7</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">7 - 8</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">8 - 9</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">9 - 10</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">10 - 11</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">11 - 12</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">12 - 13</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">13 - 14</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">14 - 15</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">15 - 16</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">16 - 17</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">17 - 18</td><td></td></tr>
+                <tr><td class="tisk-bold" style="height:50px;">6 - 7</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">7 - 8</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">8 - 9</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">9 - 10</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">10 - 11</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">11 - 12</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">12 - 13</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">13 - 14</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">14 - 15</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">15 - 16</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">16 - 17</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">17 - 18</td><td></td></tr>
             </table>
             <table class="tisk-tabulka" style="width:50%">
                 <tr class="tisk-seda"><th style="height:25px;">hodina</th><th>KÓD PROSTOJE, popis, počet min</th></tr>
-                <tr><td class="tisk-bold" style="height:60px;">18 - 19</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">19 - 20</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">20 - 21</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">21 - 22</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">22 - 23</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">23 - 24</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">24 - 1</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">1 - 2</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">2 - 3</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">3 - 4</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">4 - 5</td><td></td></tr><tr><td class="tisk-bold" style="height:60px;">5 - 6</td><td></td></tr>
+                <tr><td class="tisk-bold" style="height:50px;">18 - 19</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">19 - 20</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">20 - 21</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">21 - 22</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">22 - 23</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">23 - 24</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">24 - 1</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">1 - 2</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">2 - 3</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">3 - 4</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">4 - 5</td><td></td></tr><tr><td class="tisk-bold" style="height:50px;">5 - 6</td><td></td></tr>
             </table>
         </div>
-        <!-- POZNÁMKY -->
-        <div style="border: 2px solid black; padding: 10px; height: 80px; margin-top: 10px;">
+
+        <!-- SLOVNÍČEK PROSTOJŮ -->
+        <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <table class="tisk-tabulka" style="width: 50%; table-layout: fixed; word-wrap: break-word; margin-bottom: 0;">
+                <tr><td colspan="9" class="tisk-seda tisk-bold" style="font-size:10pt; height:20px;">Neplánované prostoje</td></tr>
+                <tr class="tisk-bold tisk-seda" style="font-size: 8pt;">
+                    <td style="width:11.11%;">Q1</td><td style="width:11.11%;">Q2</td><td style="width:11.11%;">Q4</td><td style="width:11.11%;">V1</td><td style="width:11.11%;">V2</td><td style="width:11.11%;">V3</td><td style="width:11.11%;">L1</td><td style="width:11.11%;">L2</td><td style="width:11.11%;">O1</td>
+                </tr>
+                <tr style="vertical-align: top; text-align: center; font-size: 6.5pt;">
+                    <td style="padding: 1px;">nekvalitní<br>vstupní<br>materiál</td>
+                    <td style="padding: 1px;">změna<br>šarže<br>(požadavek<br>Q)</td>
+                    <td style="padding: 1px;">uvolnění<br>výroby</td>
+                    <td style="padding: 1px;">chybí<br>pracovník</td>
+                    <td style="padding: 1px;">chybějící<br>materiál<br>- výroba</td>
+                    <td style="padding: 1px;">seřízení<br>linky</td>
+                    <td style="padding: 1px;">chybějící<br>materiál<br>- sklad</td>
+                    <td style="padding: 1px;">čekání na<br>materiál<br>(manipula-<br>nt)</td>
+                    <td style="padding: 1px;">ostatní</td>
+                </tr>
+            </table>
+            
+            <table class="tisk-tabulka" style="width: 50%; table-layout: fixed; word-wrap: break-word; margin-bottom: 0;">
+                <tr><td colspan="9" class="tisk-seda tisk-bold" style="font-size:10pt; height:20px;">Plánované prostoje</td></tr>
+                <tr class="tisk-bold tisk-seda" style="font-size: 8pt;">
+                    <td style="width:11.11%;">P1</td><td style="width:11.11%;">P2</td><td style="width:11.11%;">P3</td><td style="width:11.11%;">P4</td><td style="width:11.11%;">P5</td><td style="width:11.11%;">P6</td><td style="width:11.11%;">P7</td><td style="width:11.11%;">P8</td><td style="width:11.11%;">P9</td>
+                </tr>
+                <tr style="vertical-align: top; text-align: center; font-size: 6.5pt;">
+                    <td style="padding: 1px;">změna<br>verze,<br>linky,<br>formy</td>
+                    <td style="padding: 1px;">rozjezd<br>linky,<br>natápění</td>
+                    <td style="padding: 1px;">vzorkování,<br>testování,<br>DUMMY</td>
+                    <td style="padding: 1px;">čištění,<br>údržba,<br>výměna<br>el.</td>
+                    <td style="padding: 1px;">schůzky,<br>školení</td>
+                    <td style="padding: 1px;">školitel<br>(učitel)</td>
+                    <td style="padding: 1px;">zaško-<br>lovaný<br>(žák)</td>
+                    <td style="padding: 1px;">změna<br>praco-<br>viště</td>
+                    <td style="padding: 1px;">inventura</td>
+                </tr>
+            </table>
+        </div>
+        
+        <!-- POZNÁMKY (Bezpečně zvětšeno na 160px bez rizika 3. strany) -->
+        <div style="border: 2px solid black; padding: 10px; height: 160px; margin-top: 10px;">
             <div class="tisk-bold" style="font-size: 11pt; color: #444;">Poznámky:</div>
         </div>
     </div>
@@ -786,6 +909,7 @@ function updateMeta() {
             weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric'
         }).format(dt);
     }
+    autoCalcSkupina();
 }
 updateMeta();
 
@@ -795,11 +919,13 @@ function setTyp(typ) {
     document.getElementById('input-typ').value = typ;
     document.getElementById('btn-serie').classList.toggle('active', typ==='serie');
     document.getElementById('btn-filtry').classList.toggle('active', typ==='filtry');
+    document.getElementById('btn-vstrikovna').classList.toggle('active', typ==='vstrikovna');
     const b = document.getElementById('typ-badge');
-    b.textContent = typ==='serie'?'SÉRIE':'FILTRY';
+    b.textContent = typ==='serie' ? 'SÉRIE' : (typ==='filtry' ? 'FILTRY' : 'VSTŘIKOVNA');
     b.className = 'badge-'+typ;
     refreshPracovisteSuggestByTyp();
     calcCisty();
+    autoCalcSkupina();
 }
 
 function getPracovisteSuggestForTyp(typ) {
@@ -822,7 +948,41 @@ function onPracovisteInput(val) {
     
     // Zjednodušené robustní vyhledávání (najde jakýkoliv text, číslo, SAP, AFO všude)
     const qNorm = q.toLocaleLowerCase('cs-CZ');
-    const results = activePracovisteSuggest.filter(item => item.search.includes(qNorm));
+    
+    // 1. Získáme všechny shody jako doposud
+    let results = activePracovisteSuggest.filter(item => item.search.includes(qNorm));
+
+    // 2. Seřadíme výsledky, aby přesná shoda (hlavně ID) byla vždy nahoře
+    results.sort((a, b) => {
+        const idA = String(a.cisloId);
+        const idB = String(b.cisloId);
+        
+        // Očistíme hledaný dotaz od hranatých závorek (kdyby uživatel zadal např. "[120]")
+        const cleanQ = q.replace(/[\[\]]/g, '').trim();
+        
+        // A) Přesná shoda ID (zadá přesně "50" nebo "120")
+        const exactIdA = (idA === cleanQ);
+        const exactIdB = (idB === cleanQ);
+        if (exactIdA && !exactIdB) return -1;
+        if (!exactIdA && exactIdB) return 1;
+        
+        // B) Shoda na začátku ID (zadá "5", nahoře budou 5, 50, 51...)
+        const startsIdA = idA.startsWith(cleanQ);
+        const startsIdB = idB.startsWith(cleanQ);
+        if (startsIdA && !startsIdB) return -1;
+        if (!startsIdA && startsIdB) return 1;
+        
+        // C) Shoda na začátku AFO kódu
+        const afoA = String(a.afo || '').toLocaleLowerCase('cs-CZ');
+        const afoB = String(b.afo || '').toLocaleLowerCase('cs-CZ');
+        const startsAfoA = afoA.startsWith(qNorm);
+        const startsAfoB = afoB.startsWith(qNorm);
+        if (startsAfoA && !startsAfoB) return -1;
+        if (!startsAfoA && startsAfoB) return 1;
+        
+        // Pokud jsou na tom stejně, zůstává původní pořadí
+        return 0;
+    });
 
     renderPracovisteDropdown(results.slice(0, 100));
 }
@@ -940,11 +1100,12 @@ function loadPracovisteData(id) {
         const hidden = document.getElementById('pracovisite_id');
         if (hidden) hidden.value = '';
         applyNokVisibilityByAfo('', '');
+        calcCisty();
         return;
     }
     pwData = { zakaznik:selected.zakaznik, projekt:selected.projekt, verze:selected.verze,
         afo:selected.afo, nazev:selected.nazev, dil:selected.dil,
-        sap:selected.sap, ns:selected.ns,
+        sap:selected.sap, ns:selected.ns, oznaceni:selected.oznaceni,
         norma:parseFloat(selected.norma)||0, cycle:parseFloat(selected.cycle)||0 };
     const search = document.getElementById('pracovisite_search');
     if (search) search.value = selected.label;
@@ -961,7 +1122,7 @@ function loadPracovisteData(id) {
     document.getElementById('d-norma').textContent       = pwData.norma ? pwData.norma.toFixed(4) : '—';
     document.getElementById('d-cycle').textContent       = pwData.cycle ? pwData.cycle.toFixed(4) : '—';
     applyNokVisibilityByAfo(String(selected.cisloId || ''), String(pwData.afo || ''));
-    calcOEE();
+    calcCisty();
 }
 
 function extractAfoTokens(afoText) {
@@ -1109,40 +1270,133 @@ function getCurrentRezimFromSmena(smenaKod) {
     return String(smenaKod || '').toUpperCase().includes('12') ? 12 : 8;
 }
 
-function computeDynamicPauzaMinutes() {
-    const smenaKod = String(document.getElementById('input-smena')?.value || '').toUpperCase();
-    const casOd = document.getElementById('cas-od')?.value || '';
-    const casDo = document.getElementById('cas-do')?.value || '';
-    const odMin = toMinutes(casOd);
-    const doMin = toMinutes(casDo);
-    if (odMin === null || doMin === null || !smenaKod) return null;
-
+// Nová funkce: Vytvoří sloučenou časovou osu VŠECH aktivních pauz pro danou zónu
+function getMergedBreaksTimeline(startMin, endMin) {
     const zonaWanted = normZoneKey(getCurrentZonaLabel());
-    const rezimWanted = getCurrentRezimFromSmena(smenaKod);
-
-    let workEnd = doMin;
-    if (workEnd <= odMin) workEnd += 1440;
-
-    let total = 0;
+    let breakIntervals = [];
+    
+    // Sesbíráme všechny aktivní pauzy bez ohledu na to, k jaké směně patří
     prestavkyDef.forEach((br) => {
         if ((parseInt(br.aktivni, 10) || 0) !== 1) return;
         if (normZoneKey(br.zona) !== zonaWanted) return;
-        if ((parseInt(br.rezim_hod, 10) || 0) !== rezimWanted) return;
-        if (String(br.smena_kod || '').toUpperCase() !== smenaKod) return;
-
-        const bStartBase = toMinutes(br.cas_od);
-        const bEndBaseRaw = toMinutes(br.cas_do);
-        if (bStartBase === null || bEndBaseRaw === null) return;
-
-        let bEndBase = bEndBaseRaw;
-        if (bEndBase <= bStartBase) bEndBase += 1440;
-
-        const overlapA = overlapMinutes(odMin, workEnd, bStartBase, bEndBase);
-        const overlapB = overlapMinutes(odMin, workEnd, bStartBase + 1440, bEndBase + 1440);
-        total += Math.max(overlapA, overlapB);
+        
+        const bStart = toMinutes(br.cas_od);
+        let bEnd = toMinutes(br.cas_do);
+        if (bStart === null || bEnd === null) return;
+        if (bEnd <= bStart) bEnd += 1440; // Pauza přes půlnoc
+        
+        // Vytvoříme intervaly pro dnešek, včerejšek i zítřek, abychom pokryli noční
+        breakIntervals.push({ start: bStart, end: bEnd });
+        breakIntervals.push({ start: bStart + 1440, end: bEnd + 1440 });
+        breakIntervals.push({ start: bStart - 1440, end: bEnd - 1440 });
     });
 
-    return Math.max(0, total);
+    // Seřadíme časy a sloučíme překrývající se pauzy (aby se neduplikovaly minuty)
+    breakIntervals.sort((a, b) => a.start - b.start);
+    let mergedBreaks = [];
+    if (breakIntervals.length > 0) {
+        let current = { ...breakIntervals[0] };
+        for (let i = 1; i < breakIntervals.length; i++) {
+            if (breakIntervals[i].start <= current.end) {
+                current.end = Math.max(current.end, breakIntervals[i].end);
+            } else {
+                mergedBreaks.push(current);
+                current = { ...breakIntervals[i] };
+            }
+        }
+        mergedBreaks.push(current);
+    }
+    return mergedBreaks;
+}
+
+// Spočítá, kolik minut ze zadaného úseku spadá do pauzy
+function calculateOverlapWithBreaks(startMin, endMin) {
+    const breaks = getMergedBreaksTimeline(startMin, endMin);
+    let totalOverlap = 0;
+    
+    breaks.forEach(br => {
+        const overlap = Math.max(0, Math.min(endMin, br.end) - Math.max(startMin, br.start));
+        totalOverlap += overlap;
+    });
+    return totalOverlap;
+}
+
+
+// Nová funkce 1: Vytvoří sloučenou časovou osu VŠECH aktivních pauz pro danou zónu a režim (8h/12h)
+function getMergedBreaksTimeline() {
+    const zonaWanted = normZoneKey(getCurrentZonaLabel());
+    const smenaKod = String(document.getElementById('input-smena')?.value || '').toUpperCase();
+    // Zjistíme, jestli se jede ve 12h nebo 8h režimu (abychom nemíchali R8 pauzy do R12 směn)
+    const rezimWanted = smenaKod.includes('12') ? 12 : 8;
+
+    let breakIntervals = [];
+    
+    // Projdeme všechny pauzy a vybereme jen ty pro správnou zónu a režim
+    prestavkyDef.forEach((br) => {
+        if ((parseInt(br.aktivni, 10) || 0) !== 1) return;
+        if (normZoneKey(br.zona) !== zonaWanted) return;
+        if ((parseInt(br.rezim_hod, 10) || 8) !== rezimWanted) return;
+        // ZÁMĚRNĚ IGNORUJEME smena_kod - chceme všechny pauzy, abychom pokryli přesčasy!
+
+        const bStart = toMinutes(br.cas_od);
+        let bEnd = toMinutes(br.cas_do);
+        if (bStart === null || bEnd === null) return;
+        
+        if (bEnd <= bStart) bEnd += 1440; // Noční přesah samotné pauzy
+        
+        // Vytvoříme osu na 3 dny (včera, dnes, zítra), aby noční směny dokonale fungovaly
+        breakIntervals.push({ start: bStart, end: bEnd });
+        breakIntervals.push({ start: bStart + 1440, end: bEnd + 1440 });
+        breakIntervals.push({ start: bStart - 1440, end: bEnd - 1440 });
+    });
+
+    // Seřadíme a sloučíme překrývající se časy (aby se nepočítaly duplicitně)
+    breakIntervals.sort((a, b) => a.start - b.start);
+    let mergedBreaks = [];
+    if (breakIntervals.length > 0) {
+        let current = { ...breakIntervals[0] };
+        for (let i = 1; i < breakIntervals.length; i++) {
+            if (breakIntervals[i].start <= current.end) {
+                current.end = Math.max(current.end, breakIntervals[i].end);
+            } else {
+                mergedBreaks.push(current);
+                current = { ...breakIntervals[i] };
+            }
+        }
+        mergedBreaks.push(current);
+    }
+    return mergedBreaks;
+}
+
+// Nová funkce 2: Spočítá, kolik minut ze zadaného úseku (např. prostoje nebo směny) spadá do pauzy
+function calculateOverlapWithBreaks(startMin, endMin) {
+    const breaks = getMergedBreaksTimeline();
+    let totalOverlap = 0;
+    
+    breaks.forEach(br => {
+        const overlap = Math.max(0, Math.min(endMin, br.end) - Math.max(startMin, br.start));
+        totalOverlap += overlap;
+    });
+    return totalOverlap;
+}
+
+// Upravená funkce 3: Spočítá celkovou oprávněnou pauzu podle toho, jak dlouho je člověk v práci
+function computeDynamicPauzaMinutes() {
+    // Pokud má vybrané pracoviště označení VPD, vracíme rovnou pauzu 0
+    if (pwData && pwData.oznaceni && pwData.oznaceni.toUpperCase() === 'VPD') {
+        return 0;
+    }
+
+    const casOd = document.getElementById('cas-od')?.value || '';
+    const casDo = document.getElementById('cas-do')?.value || '';
+    const odMin = toMinutes(casOd);
+    const doMinRaw = toMinutes(casDo);
+    if (odMin === null || doMinRaw === null) return null;
+
+    let doMin = doMinRaw;
+    if (doMin <= odMin) doMin += 1440; // směna přes půlnoc
+
+    return calculateOverlapWithBreaks(odMin, doMin);
 }
 
 function applyDynamicPauza() {
@@ -1150,7 +1404,17 @@ function applyDynamicPauza() {
     if (!pauzaInput) return;
     const minutes = computeDynamicPauzaMinutes();
     if (minutes === null) return;
+    
     pauzaInput.value = String(minutes);
+    
+    // Uzamčení pole při VPD, aby ho obsluha nemohla přepsat
+    if (pwData && pwData.oznaceni && pwData.oznaceni.toUpperCase() === 'VPD') {
+        pauzaInput.readOnly = true;
+        pauzaInput.style.backgroundColor = 'rgba(0,0,0,0.05)';
+    } else {
+        pauzaInput.readOnly = false;
+        pauzaInput.style.backgroundColor = '';
+    }
 }
 
 function applySmenaDefaults() {
@@ -1161,6 +1425,7 @@ function applySmenaDefaults() {
     document.getElementById('prac-doba').value = d.min;
     applyDynamicPauza();
     calcCisty();
+    autoCalcSkupina();
 }
 applySmenaDefaults();
 
@@ -1374,16 +1639,66 @@ function removeWorkerRow(index) {
     row.remove();
 }
 
-// Technické prostoje řádky
+// Pomocná funkce: Zjistí, kolik minut z daného prostoje padá do oficiální pauzy
+function getOverlappingBreaks(startMin, endMin) {
+    const smenaKod = String(document.getElementById('input-smena')?.value || '').toUpperCase();
+    if (!smenaKod) return 0;
+
+    const zonaWanted = normZoneKey(getCurrentZonaLabel());
+    const rezimWanted = getCurrentRezimFromSmena(smenaKod);
+
+    let totalOverlap = 0;
+    prestavkyDef.forEach((br) => {
+        if ((parseInt(br.aktivni, 10) || 0) !== 1) return;
+        if (normZoneKey(br.zona) !== zonaWanted) return;
+        if ((parseInt(br.rezim_hod, 10) || 0) !== rezimWanted) return;
+        if (String(br.smena_kod || '').toUpperCase() !== smenaKod) return;
+
+        const bStartBase = toMinutes(br.cas_od);
+        const bEndBaseRaw = toMinutes(br.cas_do);
+        if (bStartBase === null || bEndBaseRaw === null) return;
+
+        let bEndBase = bEndBaseRaw;
+        if (bEndBase <= bStartBase) bEndBase += 1440; // Noční pauza přes půlnoc
+
+        // Kontrola, jestli se prostoj nepřekrývá s pauzou
+        const overlapA = overlapMinutes(startMin, endMin, bStartBase, bEndBase);
+        // Kontrola pro noční směnu (posunuto o 24h)
+        const overlapB = overlapMinutes(startMin, endMin, bStartBase + 1440, bEndBase + 1440);
+        
+        totalOverlap += Math.max(overlapA, overlapB);
+    });
+
+    return totalOverlap;
+}
+
+// Upravená funkce pro výpočet délky prostoje
 function computeDowntimeMinutesFromRange(od, dc) {
     if (!od || !dc) return null;
     const [oh, om] = String(od).split(':').map(Number);
     const [dh, dm] = String(dc).split(':').map(Number);
     if ([oh, om, dh, dm].some(Number.isNaN)) return null;
 
-    let total = (dh * 60 + dm) - (oh * 60 + om);
-    if (total < 0) total += 1440;
-    return Math.max(0, total);
+    // Musíme vědět, kdy začala směna, kvůli nočním směnám a přesahům po půlnoci
+    const shiftOd = document.getElementById('cas-od')?.value || '06:00';
+    const shiftOdMin = toMinutes(shiftOd) || 0;
+    
+    let pStart = oh * 60 + om;
+    let pEnd = dh * 60 + dm;
+    
+    // Pokud čas prostoje vypadá, že je "menší" než začátek směny, znamená to, že se stal až po půlnoci
+    if (pStart < shiftOdMin) pStart += 1440;
+    
+    // Pokud konec prostoje "předchází" začátku, prostoj sám jde přes půlnoc
+    if (pEnd <= pStart) pEnd += 1440;
+    
+    const totalRaw = pEnd - pStart; // Hrubá doba prostoje
+    
+    // Zjistíme, jestli se prostoj v této době nekryje s nějakou pauzou
+    const overlap = calculateOverlapWithBreaks(pStart, pEnd);
+    
+    // Započítáme pouze "čistý" prostoj očištěný o oficiální pauzu
+    return Math.max(0, totalRaw - overlap);
 }
 
 function recalcDowntimeRowMinutes(row) {
@@ -1393,16 +1708,17 @@ function recalcDowntimeRowMinutes(row) {
     const minInput = row.querySelector('input[name$="[minuty]"]');
     if (!odInput || !doInput || !minInput) return;
 
+    // Jakmile uživatel začne čas upravovat, rovnou mu zrušíme případný červený rámeček, 
+    // který tam mohl zůstat po předchozím neúspěšném pokusu o uložení.
+    odInput.style.borderColor = '';
+    doInput.style.borderColor = '';
+
     const minutes = computeDowntimeMinutesFromRange(odInput.value, doInput.value);
     if (minutes === null) return;
     minInput.value = String(minutes);
 
-    // Kontrola platnosti časového rozmezí vůči směně
-    const isValid = validateDowntimeRow(row);
-    if (!isValid && odInput.value && doInput.value) {
-        const { shiftOd, shiftDo } = getCurrentShiftBounds();
-        showToast('warn', `⚠ Prostoj (${odInput.value} - ${doInput.value}) je mimo čas směny (${shiftOd} - ${shiftDo})!`);
-    }
+    // Zde jsme smazali ten otravný kód, který vyhazoval varovné hlášení při psaní.
+    // Kontrola platnosti časů vůči směně proběhne až při kliknutí na tlačítko "Uložit".
 
     updateTechSum();
 }
@@ -1497,36 +1813,17 @@ if (nokMismatchModal) {
 
 async function validateNokConsistencyBeforeSubmit() {
     const totals = getNokSectionTotals();
+    
+    // Pokud je rozdíl přesně nula (počty sedí), formulář se uloží
     if (totals.diff === 0) {
         return true;
     }
 
-    if (totals.diff < 0) {
-        showToast('error', `${window.LANG_TEXT.nok_mismatch_exceeded} (${totals.section08}/${totals.section04})`);
-        document.getElementById('sec-nok')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return false;
-    }
-
-    const shouldAutoFill = await openNokMismatchModal(totals);
-    if (!shouldAutoFill) {
-        showToast('warn', window.LANG_TEXT.nok_mismatch_manual);
-        document.getElementById('sec-nok')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return false;
-    }
-
-    const ostatniInput = document.getElementById('nok_134');
-    if (!ostatniInput) {
-        showToast('error', window.LANG_TEXT.nok_mismatch_missing_ostatni);
-        document.getElementById('sec-nok')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return false;
-    }
-
-    const current = parseInt(ostatniInput.value, 10) || 0;
-    ostatniInput.value = String(current + totals.diff);
-    updateNokBadge();
-    calcKs();
-    calcOEE();
-    return true;
+    // Pokud počty nesedí (je zapsáno více nebo méně vadných kusů), vyhodí se chyba a uložení se zablokuje
+    showToast('error', '✗ Špatně zapsané NOK kusy! Celkový počet zapsaných NOK nesouhlasí s rozpisem jednotlivých vad.');
+    document.getElementById('sec-nok')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    
+    return false; // Zablokuje odeslání do databáze
 }
 
 // Pracovník search
@@ -1675,17 +1972,33 @@ async function openConfirmModal(e) {
         return;
     }
 
-    // 3. Validace pole - Vyrobeno ks (nesmí být 0 nebo prázdné)
+    // 3. Validace pole - Vyrobeno ks (přijme i 0, ale ne záporné číslo)
     const vyrobenoInput = document.getElementById('vyrobeno');
-    const vyrobenoVal = parseInt(vyrobenoInput.value, 10) || 0;
-    
-    if (vyrobenoVal <= 0) {
-        showToast('error', 'Zadejte prosím vyrobené kusy (hodnota musí být větší než 0).');
-        vyrobenoInput.style.borderColor = 'var(--accent2)'; // červené orámování při chybě
+    const vyrobenoVal = parseInt(vyrobenoInput.value, 10);
+    const hasVyrobenoValue = vyrobenoInput.value.trim() !== '';
+
+    if (!hasVyrobenoValue || Number.isNaN(vyrobenoVal) || vyrobenoVal < 0) {
+        showToast('error', 'Zadejte prosím vyrobené kusy (hodnota nesmí být prázdná ani záporná).');
+        vyrobenoInput.style.borderColor = 'var(--accent2)';
         document.getElementById('sec-vyroba').scrollIntoView({behavior:'smooth', block:'center'});
         return;
     } else {
-        vyrobenoInput.style.borderColor = ''; // vrácení původní barvy
+        vyrobenoInput.style.borderColor = '';
+    }
+
+    const zeroProduction = vyrobenoVal === 0;
+    const modalTitle = document.getElementById('confirm-modal-title');
+    const modalMsg = document.getElementById('confirm-modal-msg');
+    const modalNote = document.getElementById('confirm-modal-note');
+
+    if (zeroProduction) {
+        modalTitle.innerHTML = '<i class="bi bi-exclamation-triangle me-2 text-warn"></i>Potvrzení nulové výroby';
+        modalMsg.textContent = 'Vyrobeno celkem je 0 ks. Jste si vědom/a, že se ukládá nulová výroba?';
+        modalNote.innerHTML = '<i class="bi bi-info-circle me-2 text-warn"></i>Pokud je to správně, potvrďte uložení. Záznam se uloží i při nule.';
+    } else {
+        modalTitle.innerHTML = '<i class="bi bi-question-circle me-2 text-accent"></i>' + (window.LANG_TEXT?.confirm_save_title || 'Potvrdit uložení');
+        modalMsg.textContent = window.LANG_TEXT?.confirm_save_msg || 'Opravdu chcete uložit záznam?';
+        modalNote.innerHTML = '<i class="bi bi-info-circle me-2 text-accent"></i>' + (window.LANG_TEXT?.confirm_save_note || 'Zkontrolujte údaje před uložením.');
     }
 
     // 4. Kontrola, zda prostoje nejsou mimo směnu
@@ -1884,12 +2197,118 @@ function validateAllDowntimes() {
     return { allValid, invalidCount };
 }
 
+
+let isEditPageLoaded = (typeof RECORD_ID !== 'undefined') ? false : true;
+// UNIVERZÁLNÍ A BEZPEČNÁ FUNKCE PRO VÝPOČET SKUPINY
+function autoCalcSkupina() {
+    // Pojistka pro editaci
+    if (typeof RECORD_ID !== 'undefined' && window.isEditPageLoaded !== true) {
+        return; 
+    }
+
+    const typEl = document.getElementById('input-typ');
+    const datumEl = document.getElementById('input-datum');
+    const smenaEl = document.getElementById('input-smena');
+    const skupinaSelect = document.getElementById('input-skupina');
+    
+    if (!datumEl || !smenaEl || !skupinaSelect || !typEl) return;
+
+    const typ = typEl.value;
+    const datumStr = datumEl.value;
+    const smenaKod = smenaEl.value;
+    
+    if (!datumStr || !smenaKod) return;
+    
+    let newSkupina = null;
+
+    if (typ === 'serie' || typ === 'vstrikovna') {
+        let targetDate = new Date(datumStr + 'T00:00:00');
+        let calcDateStr = datumStr;
+        
+        // FIX PRO NEDĚLNÍ NOČNÍ (POUZE PRO SÉRII): Neděle = 0, posouváme na pondělí
+        if (targetDate.getDay() === 0 && smenaKod.startsWith('N')) {
+            let nextDay = new Date(targetDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            let y = nextDay.getFullYear();
+            let m = String(nextDay.getMonth() + 1).padStart(2, '0');
+            let d = String(nextDay.getDate()).padStart(2, '0');
+            calcDateStr = `${y}-${m}-${d}`;
+        }
+
+        let cw = null;
+        if (typeof getISOWeekNumber === 'function') {
+            cw = getISOWeekNumber(calcDateStr);
+        } else {
+            let dObj = new Date(calcDateStr);
+            dObj.setHours(0, 0, 0, 0);
+            dObj.setDate(dObj.getDate() + 3 - (dObj.getDay() + 6) % 7);
+            let week1 = new Date(dObj.getFullYear(), 0, 4);
+            cw = 1 + Math.round(((dObj.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+        }
+        
+        if (cw) {
+            const mod = cw % 3;
+            if (smenaKod.startsWith('R')) {
+                newSkupina = (mod === 1) ? 'B' : (mod === 2 ? 'C' : 'A');
+            } else if (smenaKod.startsWith('O')) {
+                newSkupina = (mod === 1) ? 'C' : (mod === 2 ? 'A' : 'B');
+            } else if (smenaKod.startsWith('N')) {
+                newSkupina = (mod === 1) ? 'A' : (mod === 2 ? 'B' : 'C');
+            }
+        }
+    } else if (typ === 'filtry') {
+        
+        // VÝJIMKA: Pokud se na Filtrech dělá 8h směna, automatika nesmí nic dělat
+        // a nechá políčko tak, jak si ho mistr nastaví manuálně.
+        if (smenaKod === 'R8' || smenaKod === 'O8' || smenaKod === 'N8') {
+            return; 
+        }
+
+        // Pro Filtry je kotevní datum natvrdo 3.8.2026 (Pondělí), jinak se rozbije krátký/dlouhý týden
+        const refDate = new Date('2026-08-03T00:00:00');
+        const targetDate = new Date(datumStr + 'T00:00:00');
+        
+        if (!isNaN(targetDate.getTime()) && !isNaN(refDate.getTime())) {
+            const diffTime = targetDate.getTime() - refDate.getTime();
+            const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
+            
+            const weeks = Math.floor(diffDays / 7);
+            const d = diffDays - (weeks * 7); 
+            
+            let blockInWeek = 0;
+            if (d === 2 || d === 3) blockInWeek = 1; 
+            else if (d >= 4) blockInWeek = 2;        
+            
+            const globalBlock = (weeks * 3) + blockInWeek;
+            const pairIndex = ((globalBlock % 4) + 4) % 4; 
+            
+            const isDay = smenaKod.startsWith('R') || smenaKod.startsWith('O');
+            
+            if (pairIndex === 0) newSkupina = isDay ? 'D' : 'C';
+            else if (pairIndex === 1) newSkupina = isDay ? 'A' : 'B';
+            else if (pairIndex === 2) newSkupina = isDay ? 'C' : 'D';
+            else if (pairIndex === 3) newSkupina = isDay ? 'B' : 'A';
+        }
+    }
+    
+    if (newSkupina) {
+        skupinaSelect.value = newSkupina;
+        skupinaSelect.style.transition = 'background-color 0.4s';
+        skupinaSelect.style.backgroundColor = 'var(--accent)';
+        setTimeout(() => {
+            skupinaSelect.style.backgroundColor = '';
+        }, 500);
+    }
+}
+
 // Init
 addWorkerRow();
 addTechRow();
 calcKs(); calcProstoje();
 setTyp('serie');
+updateNokBadge(); updateMeta();
 
+setTimeout(() => { window.isEditPageLoaded = true; }, 100);
 
 // Při startu vygenerovat hodiny
 renderHourlyGrid();
@@ -1954,35 +2373,95 @@ function pripravTiskA4() {
         const kodEl = el.querySelector('.nok-code');
         const labelEl = el.querySelector('label');
         if (kodEl && labelEl) {
-            vady.push({ kod: kodEl.textContent.trim(), popis: labelEl.textContent.trim() });
+            vady.push({
+                kod: kodEl.textContent.trim(),
+                popis: labelEl.textContent.trim()
+            });
         }
     });
-
-    vady.push({ kod: '134', popis: 'ostatní' });
 
     const half = Math.ceil(vady.length / 2);
     const vadyLeft = vady.slice(0, half);
     const vadyRight = vady.slice(half);
 
-    // DŮLEŽITÉ: Zmenšena výška na 17px a zmenšené písmo, aby se 20+ chyb vlezlo na jednu stránku
+    const getQStop = (kod) => {
+        if (!kod) return '';
+        const projNormalized = projekt.trim().toLowerCase();
+        if (projNormalized === 'emv filter') return 'x';
+        if (String(kod).trim() === '23') return 'x';
+        return '3 ks';
+    };
+
     const renderRows = (arr, minRows) => {
         let html = '';
         for (let i = 0; i < Math.max(arr.length, minRows); i++) {
             if (i < arr.length) {
-                html += `<tr><td class="tisk-bold" style="height:17px; font-size:9pt; padding:1px;">${arr[i].kod}</td><td class="tisk-text-left" style="font-size:8pt; padding:1px 4px;">${arr[i].popis}</td><td style="font-size:9pt; padding:1px;">x</td><td style="padding:1px;"></td></tr>`;
+                const qStopText = getQStop(arr[i].kod);
+                html += `<tr>
+                    <td class="tisk-bold" style="height:18px; font-size:9pt; padding:1px;">${arr[i].kod}</td>
+                    <td class="tisk-text-left" style="font-size:8.5pt; padding:1px 4px;">${arr[i].popis}</td>
+                    <td class="tisk-bold" style="font-size:9pt; padding:1px;">${qStopText}</td>
+                    <td style="padding:1px;"></td>
+                </tr>`;
             } else {
-                html += `<tr><td style="height:17px; padding:1px;"></td><td style="padding:1px;"></td><td style="padding:1px;"></td><td style="padding:1px;"></td></tr>`; 
+                html += `<tr><td style="height:18px; padding:1px;"></td><td style="padding:1px;"></td><td style="padding:1px;"></td><td style="padding:1px;"></td></tr>`; 
             }
         }
         return html;
     };
 
-    document.getElementById('tisk-nok-levy').innerHTML = renderRows(vadyLeft, 14);
-    document.getElementById('tisk-nok-pravy').innerHTML = renderRows(vadyRight, 14);
+    document.getElementById('tisk-nok-levy').innerHTML = renderRows(vadyLeft, 21);
+    document.getElementById('tisk-nok-pravy').innerHTML = renderRows(vadyRight, 21);
 
+    // --- VARIANTA B: TISK PŘES IZOLOVANÝ NEVIDITELNÝ IFRAME ---
+    const printSekce = document.getElementById('tisk-sekce');
+    
+    // Vytvoříme neviditelné okno
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0px';
+    iframe.style.height = '0px';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+    
+    // Zapíšeme do něj HTML tabulek a čisté CSS pravidla jen a pouze pro tisk
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
+        <html>
+        <head>
+            <style>
+                @page { size: A4 portrait; margin: 6mm; }
+                body { margin: 0; padding: 0; font-family: Arial, sans-serif; color: black; background: white; }
+                
+                /* Tímto příkazem zakážeme tiskárně dělat stranu za druhým listem */
+                .tisk-strana { page-break-after: always; width: 100%; display: block; position: relative; }
+                .tisk-strana:last-child { page-break-after: avoid !important; break-after: avoid !important; }
+                
+                .tisk-tabulka { width: 100%; border-collapse: collapse; margin-bottom: 5px; font-size: 9pt; box-sizing: border-box; }
+                .tisk-tabulka th, .tisk-tabulka td { border: 2px solid black; padding: 2px; text-align: center; vertical-align: middle; box-sizing: border-box; }
+                .tisk-text-left { text-align: left !important; }
+                .tisk-bold { font-weight: bold; }
+                .tisk-seda { background-color: #d9d9d9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            </style>
+        </head>
+        <body>
+            ${printSekce.innerHTML}
+        </body>
+        </html>
+    `);
+    doc.close();
+    
+    // Z tohoto okna vyvoláme tisk. Nikdy nebude mít 3 strany.
     setTimeout(() => {
-        window.print();
-    }, 150);
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        
+        // Okno po sobě za chvíli uklidíme
+        setTimeout(() => {
+            document.body.removeChild(iframe);
+        }, 1000);
+    }, 250);
 }
 // ===== TISK A4 FUNKCE END =====
 

@@ -100,6 +100,7 @@ echo $role === 'superadmin' ? t('role_display_superadmin') :
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/zaznamy.php" class="<?= $activePage==='zaznamy'?'active':'' ?>"><i class="bi bi-table"></i><?= t('nav_records') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/zaznamy_pracovnici.php" class="<?= $activePage==='zaznamy_pracovnici'?'active':'' ?>"><i class="bi bi-people"></i><?= t('nav_workers') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/oee.php" class="<?= $activePage==='oee'?'active':'' ?>"><i class="bi bi-speedometer2"></i><?= t('nav_oee') ?></a></div>
+<div class="nav-item"><a href="<?= $baseUrl ?>/admin/vysledovka.php" class="<?= $activePage==='vysledovka'?'active':'' ?>"><i class="bi bi-bar-chart-line"></i>Výsledovka</a></div>
 <?php if (hasAnyRole(['superadmin', 'admin'])): ?>
 <div class="nav-item nav-item-external-split d-flex align-items-stretch">
 				<a href="<?= $baseUrl ?>/admin/kt_report_all.php" class="nav-main-link <?= $activePage==='kt_report_all'?'active':'' ?>" style="flex:1 1 auto;"><i class="bi bi-calendar-week"></i><?= t('nav_weekly_production') ?></a>
@@ -280,5 +281,27 @@ lastDisplay=displayText;
 
 render();
 setInterval(render,1000);
+})();
+</script>
+
+<script>
+(() => {
+    const nav = document.querySelector('.sidebar nav');
+    if (!nav) return;
+
+    const activeLink = nav.querySelector('a.active');
+    if (!activeLink) return;
+
+    const scrollToActive = () => {
+        const navRect = nav.getBoundingClientRect();
+        const linkRect = activeLink.getBoundingClientRect();
+        const offsetFromNavTop = linkRect.top - navRect.top + nav.scrollTop;
+        const targetScrollTop = offsetFromNavTop - (nav.clientHeight / 2) + (activeLink.offsetHeight / 2);
+        const maxScroll = Math.max(0, nav.scrollHeight - nav.clientHeight);
+        nav.scrollTop = Math.max(0, Math.min(targetScrollTop, maxScroll));
+    };
+
+    requestAnimationFrame(scrollToActive);
+    window.addEventListener('load', scrollToActive, { once: true });
 })();
 </script>

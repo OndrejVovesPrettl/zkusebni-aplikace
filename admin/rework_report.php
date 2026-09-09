@@ -16,6 +16,27 @@ $fProjectId = max(0, (int)get('project_id', 0));
 $fReasonId = max(0, (int)get('reason_id', 0));
 $fActionId = max(0, (int)get('action_id', 0));
 $fDmc = trim((string)get('dmc', ''));
+$sortKey = strtolower(trim((string)get('sort', 'recorded_at')));
+$sortDir = strtolower(trim((string)get('dir', 'desc')));
+
+$sortColumns = [
+    'id' => 're.id',
+    'recorded_at' => 're.recorded_at',
+    'project' => 'rp.code',
+    'dmc' => 're.dmc',
+    'reason' => 'rr.code',
+    'action' => 'ra.code',
+    'replacement_dmc' => 're.replacement_dmc',
+    'note' => 're.note',
+    'recorded_by' => 'recorded_by',
+];
+
+if (!isset($sortColumns[$sortKey])) {
+    $sortKey = 'recorded_at';
+}
+if (!in_array($sortDir, ['asc', 'desc'], true)) {
+    $sortDir = 'desc';
+}
 
 if (!validateDate($fOd)) $fOd = date('Y-m-01');
 if (!validateDate($fDo)) $fDo = date('Y-m-d');
@@ -53,6 +74,46 @@ $byReason = [];
 $byAction = [];
 $rows = [];
 
+$sortExpr = $sortColumns[$sortKey] ?? 're.recorded_at';
+$sortDirSql = strtoupper($sortDir);
+$toggleDir = static function (string $key) use ($sortKey, $sortDir): string {
+    return $sortKey === $key && $sortDir === 'asc' ? 'desc' : 'asc';
+};
+$sortLink = static function (string $key, string $label) use ($toggleDir, $sortKey, $sortDir): string {
+    $dir = $toggleDir($key);
+    $active = $sortKey === $key;
+    $arrow = $active ? ($sortDir === 'asc' ? ' <i class="bi bi-arrow-up-short"></i>' : ' <i class="bi bi-arrow-down-short"></i>') : '';
+    $query = http_build_query(array_filter([
+        'od' => get('od', date('Y-m-01')),
+        'do' => get('do', date('Y-m-d')),
+        'project_id' => $fProjectId ?: null,
+        'reason_id' => $fReasonId ?: null,
+        'action_id' => $fActionId ?: null,
+        'dmc' => $fDmc !== '' ? $fDmc : null,
+        'sort' => $key,
+        'dir' => $dir,
+    ], static fn($value) => $value !== null && $value !== ''));
+    return '<a href="' . APP_URL . '/admin/rework_report.php?' . h($query) . '#rework-report-table" style="color:inherit;text-decoration:none">' . h($label) . $arrow . '</a>';
+};
+$reasonLink = static function (array $reasonRow) use ($fOd, $fDo, $fProjectId, $fReasonId, $fActionId, $fDmc, $sortKey, $sortDir): string {
+    $reasonId = (int)$reasonRow['id'];
+    $isActive = $fReasonId === $reasonId;
+    $query = http_build_query(array_filter([
+        'od' => $fOd,
+        'do' => $fDo,
+        'project_id' => $fProjectId ?: null,
+        'reason_id' => $isActive ? null : $reasonId,
+        'action_id' => $fActionId ?: null,
+        'dmc' => $fDmc !== '' ? $fDmc : null,
+        'sort' => $sortKey,
+        'dir' => $sortDir,
+    ], static fn($value) => $value !== null && $value !== ''));
+    $style = 'color:inherit;text-decoration:none;display:flex;justify-content:space-between;gap:1rem;padding:.35rem .5rem;border-radius:6px;transition:background .13s ease,border-color .13s ease;';
+    $badge = $isActive ? ' <i class="bi bi-funnel-fill"></i>' : '';
+    $activeStyle = $isActive ? 'background:rgba(0,229,176,.07);border:1px solid rgba(0,229,176,.20);' : 'background:transparent;border:1px solid transparent;';
+    return '<a class="rework-reason-link" href="' . APP_URL . '/admin/rework_report.php?' . h($query) . '#rework-report-table" style="' . $style . $activeStyle . '"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' . h((string)$reasonRow['code'] . ' - ' . (string)$reasonRow['label']) . $badge . '</span><span class="mono" style="flex-shrink:0;text-align:right">' . (int)$reasonRow['cnt'] . '</span></a>';
+};
+
 if ($storageReady) {
     $summary = db_row(
         'SELECT COUNT(*) AS total,
@@ -76,7 +137,7 @@ if ($storageReady) {
     );
 
     $byReason = db_all(
-        'SELECT rr.code, rr.label, COUNT(re.id) AS cnt
+        'SELECT rr.id, rr.code, rr.label, COUNT(re.id) AS cnt
          FROM rework_reasons rr
          LEFT JOIN rework_entries re ON re.reason_id = rr.id AND ' . $whereSql . '
          GROUP BY rr.id, rr.code, rr.label
@@ -112,7 +173,7 @@ if ($storageReady) {
          INNER JOIN rework_actions ra ON ra.id = re.action_id
          LEFT JOIN users u ON u.id = re.recorded_by_user_id
          WHERE ' . $whereSql . '
-         ORDER BY re.recorded_at DESC, re.id DESC
+         ORDER BY ' . $sortExpr . ' ' . $sortDirSql . ', re.id DESC
          LIMIT 300',
         $params
     );
@@ -178,35 +239,46 @@ require APP_ROOT . '/includes/layout.php';
         <div class="card-dvd" style="padding:1rem;"><div style="font-size:1.8rem;font-weight:700;color:var(--success)"><?= (int)($summary['ok_count'] ?? 0) ?></div><div style="color:var(--muted);font-size:.85rem"><?= t('rework_ok_count') ?></div></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:1rem;margin-bottom:1rem;align-items:start;">
-        <div class="card-dvd" style="padding:1rem;grid-column:1;grid-row:1/3;">
+    <style>
+        .rework-reason-link:hover {
+            background: rgba(0,229,176,.035) !important;
+            border-color: var(--border2) !important;
+        }
+    </style>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;align-items:start;">
+        <div class="card-dvd" style="padding:1rem;grid-column:1 / -1;">
             <div style="font-size:1rem;font-weight:600;margin-bottom:.75rem;"><?= t('rework_reason_breakdown') ?></div>
-            <table class="tbl"><tbody><?php foreach ($byReason as $row): ?><tr><td><?= h((string)$row['code'] . ' - ' . (string)$row['label']) ?></td><td style="text-align:right" class="mono"><?= (int)$row['cnt'] ?></td></tr><?php endforeach; ?></tbody></table>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem 1rem;">
+                <?php foreach ($byReason as $row): ?>
+                <?= $reasonLink($row) ?>
+                <?php endforeach; ?>
+            </div>
         </div>
-        <div class="card-dvd" style="padding:1rem;grid-column:2;grid-row:1;">
+        <div class="card-dvd" style="padding:1rem;">
             <div style="font-size:1rem;font-weight:600;margin-bottom:.75rem;"><?= t('rework_project_breakdown') ?></div>
             <table class="tbl"><tbody><?php foreach ($byProject as $row): ?><tr><td><?= h((string)$row['code']) ?></td><td style="text-align:right" class="mono"><?= (int)$row['cnt'] ?></td></tr><?php endforeach; ?></tbody></table>
         </div>
-        <div class="card-dvd" style="padding:1rem;grid-column:2;grid-row:2;">
+        <div class="card-dvd" style="padding:1rem;">
             <div style="font-size:1rem;font-weight:600;margin-bottom:.75rem;"><?= t('rework_action_breakdown') ?></div>
             <table class="tbl"><tbody><?php foreach ($byAction as $row): ?><tr><td><?= h((string)$row['code'] . ' - ' . (string)$row['label']) ?></td><td style="text-align:right" class="mono"><?= (int)$row['cnt'] ?></td></tr><?php endforeach; ?></tbody></table>
         </div>
     </div>
 
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" id="rework-report-table" style="scroll-margin-top:110px">
         <div class="overflow-x">
             <table class="tbl">
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th><?= t('rework_recorded_at') ?></th>
-                        <th><?= t('rework_project') ?></th>
-                        <th><?= t('rework_dmc') ?></th>
-                        <th><?= t('rework_reason') ?></th>
-                        <th><?= t('rework_action') ?></th>
-                        <th><?= t('rework_new_qr') ?></th>
-                        <th><?= t('rework_note') ?></th>
-                        <th><?= t('rework_recorded_by') ?></th>
+                        <th><?= $sortLink('id', 'ID') ?></th>
+                        <th><?= $sortLink('recorded_at', t('rework_recorded_at')) ?></th>
+                        <th><?= $sortLink('project', t('rework_project')) ?></th>
+                        <th><?= $sortLink('dmc', t('rework_dmc')) ?></th>
+                        <th><?= $sortLink('reason', t('rework_reason')) ?></th>
+                        <th><?= $sortLink('action', t('rework_action')) ?></th>
+                        <th><?= $sortLink('replacement_dmc', t('rework_new_qr')) ?></th>
+                        <th><?= $sortLink('note', t('rework_note')) ?></th>
+                        <th><?= $sortLink('recorded_by', t('rework_recorded_by')) ?></th>
                         <th class="no-print"><?= t('actions') ?></th>
                     </tr>
                 </thead>
@@ -238,7 +310,7 @@ require APP_ROOT . '/includes/layout.php';
         </div>
         <div class="tbl-footer"><span><?= count($rows) ?> <?= t('rows') ?></span></div>
     </div>
-    <?php endif; ?>
+        <?php endif; ?>
 </div>
 
 <?php require APP_ROOT . '/includes/layout_end.php'; ?>

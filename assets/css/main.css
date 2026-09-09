@@ -494,6 +494,7 @@ html.sidebar-compact .theme-switch-wrap {
 /* ── Badges ── */
 .badge-serie  { background:rgba(0,229,176,.15); color:var(--accent); font-size:.65rem; padding:.2rem .5rem; border-radius:4px; font-family:var(--mono); }
 .badge-filtry { background:rgba(255,107,53,.15); color:var(--accent2); font-size:.65rem; padding:.2rem .5rem; border-radius:4px; font-family:var(--mono); }
+.badge-vstrikovna { background:rgba(56,189,248,.15); color:#38bdf8; font-size:.65rem; padding:.2rem .5rem; border-radius:4px; font-family:var(--mono); }
 .badge-ok     { background:rgba(74,222,128,.15); color:var(--success); font-size:.65rem; padding:.2rem .5rem; border-radius:4px; }
 .badge-nok    { background:rgba(248,113,113,.15); color:var(--danger); font-size:.65rem; padding:.2rem .5rem; border-radius:4px; }
 

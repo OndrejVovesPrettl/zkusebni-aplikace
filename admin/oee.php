@@ -156,7 +156,8 @@ require APP_ROOT . '/includes/layout.php';
     <div class="col-6 col-md-2"><label class="form-label-dvd"><?= t('typ') ?></label>
         <select name="typ" class="form-select"><option value=""><?= t('all') ?></option>
         <option value="serie" <?=$fTyp==='serie'?'selected':''?>><?= t('type_serie') ?></option>
-        <option value="filtry" <?=$fTyp==='filtry'?'selected':''?>><?= t('type_filtry') ?></option></select></div>
+        <option value="filtry" <?=$fTyp==='filtry'?'selected':''?>><?= t('type_filtry') ?></option>
+        <option value="vstrikovna" <?=$fTyp==='vstrikovna'?'selected':''?>><?= t('type_vstrikovna') ?></option></select></div>
     <div class="col-12 col-md-4"><label class="form-label-dvd"><?= t('pracovisite') ?></label>
         <select name="pracovisite_id" class="form-select"><option value=""><?= t('all') ?></option>
         <?php foreach($pracovisteList as $pw): ?><option value="<?= $pw['id'] ?>" <?=$fPrac==$pw['id']?'selected':''?>><?= h($pw['cislo_id'].' - '.$pw['nazev_dilu']) ?></option><?php endforeach; ?>

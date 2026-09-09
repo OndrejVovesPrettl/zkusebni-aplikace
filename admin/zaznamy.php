@@ -16,6 +16,8 @@ $fPrac    = get('pracovisite_id', '');
 $fJmeno   = trim((string)get('jmeno', ''));
 $fRok     = get('rok',    '');
 $fCw      = get('cw',     '');
+$fSkupina = strtoupper(trim((string)get('skupina', '')));
+if (!in_array($fSkupina, ['A', 'B', 'C', 'D'], true)) $fSkupina = '';
 $fOeeMin  = get('oee_min','');
 $export   = get('export') === 'csv';
 $print    = get('print')  === '1';
@@ -44,6 +46,7 @@ if ($fJmeno !== '') {
 }
 if ($fRok)   { $where[] = 'z.rok=:rok';        $params[':rok']   = $fRok; }
 if ($fCw)    { $where[] = 'z.cw=:cw';          $params[':cw']    = $fCw; }
+if ($fSkupina !== '') { $where[] = 'z.skupina=:skupina'; $params[':skupina'] = $fSkupina; }
 if ($fOeeMin!=='') { $where[] = 'z.oee_procent >= :oeemin'; $params[':oeemin'] = (float)$fOeeMin/100; }
 $wSQL = 'WHERE '.implode(' AND ', $where);
 
@@ -56,11 +59,9 @@ $downtimeJoin = "LEFT JOIN (
     GROUP BY zapis_id
 ) zp ON zp.zapis_id=z.id";
 
-// Odstraněn z.k_posouzeni, ponechány z.tech, z.blok, z.tnz pro export
-$sql = "SELECT z.id,z.typ,z.datum,z.cw,z.rok,z.smena,z.jmeno,z.pracovni_pozice,
-               z.vyrobeno_ks,z.nok_ks,z.vyrobeno_dobre_ks,
-               z.tech,z.blok,z.tnz,
-               z.cisty_cas_min,z.oee_procent,COALESCE(zp.dt_total,0) AS prostoj_celkem_min,
+$sql = "SELECT z.id,z.typ,z.datum,z.cw,z.rok,z.smena,z.skupina,z.jmeno,z.pracovni_pozice,
+               z.vyrobeno_ks,z.nok_ks,z.vyrobeno_dobre_ks,z.k_posouzeni,
+           z.cisty_cas_min,z.oee_procent,COALESCE(zp.dt_total,0) AS prostoj_celkem_min,
                z.kod_pracovisite,z.nazev_pracovisite,z.nazev_dilu,
                z.zakaznik,z.projekt,z.zapsal
         FROM zapisy z
@@ -185,18 +186,25 @@ require APP_ROOT . '/includes/layout.php';
                 <option value=""><?= t('all') ?></option>
                 <option value="serie" <?=$fTyp==='serie'?'selected':''?>><?= t('type_serie') ?></option>
                 <option value="filtry" <?=$fTyp==='filtry'?'selected':''?>><?= t('type_filtry') ?></option>
+                <option value="vstrikovna" <?=$fTyp==='vstrikovna'?'selected':''?>><?= t('type_vstrikovna') ?></option>
             </select></div>
         <div class="col-6 col-md-1"><label class="form-label-dvd"><?= t('smena') ?></label>
             <select name="smena" class="form-select">
                 <option value=""><?= t('all') ?></option>
                 <?php foreach(['R8','O8','N8','R12','N12'] as $s): ?><option <?=$fSmena===$s?'selected':''?>><?= $s ?></option><?php endforeach; ?>
             </select></div>
+        <div class="col-4 col-md-1"><label class="form-label-dvd"><?= t('group') ?></label><select name="skupina" class="form-select">
+            <option value=""><?= t('all') ?></option>
+            <?php foreach (['A', 'B', 'C', 'D'] as $skupina): ?><option value="<?= $skupina ?>" <?= $fSkupina === $skupina ? 'selected' : '' ?>><?= $skupina ?></option><?php endforeach; ?>
+        </select></div>
         <div class="col-12 col-md-3"><label class="form-label-dvd"><?= t('pracovisite') ?></label>
             <select name="pracovisite_id" class="form-select">
                 <option value=""><?= t('all') ?></option>
                 <?php foreach ($pracovisteList as $p): ?><option value="<?= $p['id'] ?>" <?=$fPrac==$p['id']?'selected':''?>>[<?= $p['cislo_id'] ?>] <?= h($p['nazev_dilu']) ?></option><?php endforeach; ?>
             </select></div>
         <div class="col-6 col-md-2"><label class="form-label-dvd"><?= t('pracovnik') ?></label><input type="search" name="jmeno" class="form-control" value="<?= h($fJmeno) ?>" placeholder="<?= t('worker_namep') ?>" list="worker-list" autocomplete="off"></div>
+        <!-- <div class="col-4 col-md-1"><label class="form-label-dvd"><?= t('cw') ?></label><input type="number" name="cw" class="form-control" min="1" max="53" value="<?= h($fCw) ?>" placeholder="—"></div> -->
+        <!--<div class="col-4 col-md-1"><label class="form-label-dvd"><?= t('year') ?></label><input type="number" name="rok" class="form-control" min="2020" value="<?= h($fRok) ?>" placeholder="—"></div> -->
         <div class="col-4 col-md-1"><label class="form-label-dvd"><?= t('oee_min_filter') ?></label><input type="number" name="oee_min" class="form-control" min="0" max="100" value="<?= h($fOeeMin) ?>" placeholder="—"></div>
         <div class="col-auto d-flex gap-2 mt-1">
             <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-funnel me-1"></i><?= t('filter') ?></button>
@@ -218,13 +226,13 @@ require APP_ROOT . '/includes/layout.php';
         <thead><tr>
             <th>ID</th><th><?= t('typ') ?></th><th><?= t('datum') ?></th><th><?= t('column_cw') ?></th>
             <th><?= t('pracovisite') ?></th><th><?= t('nazev_dilu') ?></th>
-            <th><?= t('smena') ?></th><th><?= t('pracovnik') ?></th>
+            <th><?= t('smena') ?></th><th><?= t('group') ?></th><th><?= t('pracovnik') ?></th>
             <th><?= t('vyrobeno') ?></th><th><?= t('nok_ks') ?></th><th><?= t('cisty_cas') ?></th>
             <th><?= t('column_oee') ?></th><th><?= t('prostoje') ?></th><th class="no-print"><?= t('actions') ?></th>
         </tr></thead>
         <tbody>
         <?php if (empty($rows)): ?>
-            <tr><td colspan="14" class="text-center py-5 text-muted-dvd"><?= t('no_data') ?></td></tr>
+            <tr><td colspan="15" class="text-center py-5 text-muted-dvd"><?= t('no_data') ?></td></tr>
         <?php else: foreach ($rows as $r):
             $oee = $r['oee_procent'] !== null ? round($r['oee_procent']*100,1) : null;
             $oc  = $oee!==null ? ($oee>=85?'good':($oee>=70?'warn':'bad')) : '';
@@ -237,6 +245,7 @@ require APP_ROOT . '/includes/layout.php';
             <td><?= h($r['kod_pracovisite']??'') ?><br><small class="text-muted-dvd"><?= h($r['nazev_pracovisite']??'') ?></small></td>
             <td><?= h($r['nazev_dilu']??'') ?><br><small class="text-muted-dvd"><?= h(($r['zakaznik']??'').' / '.($r['projekt']??'')) ?></small></td>
             <td class="mono"><?= h($r['smena']) ?></td>
+            <td class="mono text-center"><?= h($r['skupina'] ?: '—') ?></td>
             <td><?= h($r['jmeno']??'') ?></td>
             <td class="mono text-accent"><?= number_format((int)$r['vyrobeno_ks']) ?></td>
             <td class="mono <?= $r['nok_ks']>0?'text-accent2':'' ?>"><?= number_format((int)$r['nok_ks']) ?></td>
