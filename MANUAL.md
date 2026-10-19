@@ -1,9 +1,48 @@
-# DVD Sledování výroby – Uživatelský manuál (v5.4.0)
+# DVD Sledování výroby – Uživatelský manuál (v5.6.6)
 
-## Poznamka k verzi v5.4.0
+## Poznámka k verzi v5.6.6
 
-- Release `v5.4.0` sjednocuje aktuální stav aplikace, dokumentaci a produkční metadata pro finální verzi `v3.4`.
-- Uzivatelske ovladani v aplikaci zustava stejne; zmena je primarne technicka synchronizace chovani mezi vetvemi.
+- V editoru NOK matice lze vyhledat a vybrat až pět pracovišť; po potvrzení se načtou pouze jejich sloupce.
+- Při uložení se mění nastavení vybraných pracovišť; ostatní AFO matice zůstávají nedotčené.
+- Tlačítko Přestavět z Excelu není v uživatelském rozhraní zobrazeno.
+
+## CSV import pracovníků
+
+Importní soubor používá pořadí sloupců:
+
+```text
+interni_id;jmeno;ukonceni;smennost;role
+```
+
+`role` je nepovinná a přijímá libovolný text. Pokud je prázdná nebo ve starší CSV hlavičce chybí, uloží se výchozí hodnota `D`.
+
+## Poznámka k verzi v5.6.5
+
+- Změna nebo zrušení výběru pracoviště odstraní stará navázaná data; tisk používá pouze platný výběr pracoviště.
+- Pro nezmapované AFO se nezobrazují NOK položky.
+- Filtry v přehledu záznamů zůstávají zachované při návratu z detailu, editace nebo mazání; Reset je vymaže.
+- Detail pracovníka se lépe přizpůsobí šířce obrazovky a dlouhým názvům pracovišť.
+
+## Poznámka k verzi v5.6.4
+
+- Číselník pracovníků zobrazuje stav zaměstnání **Aktivní/Ukončeno** a umožňuje filtrování osobního čísla, jména, směnnosti, třídy a stavu.
+- Aktivní pracovník pro hlavní formulář musí mít nastavené ruční `aktivni = 1` a datum ukončení v budoucnosti.
+- Importní soubor pracovníků má sloupce `interni_id;jmeno;smennost;ukonceni`. Duplicitní osobní čísla se řeší v modalu; pokud jsou všechny jejich záznamy ukončeny před dneškem, skupina se přeskočí.
+- Ruční přidání a editace pracovníka probíhá v modalu.
+
+- Role `fsk_print` umožňuje pouze výběr pracoviště/okruhu a tisk; změna dat není dostupná.
+- Role Traceability Lineleader (`writer`) má na hlavním formuláři stejný read-only výběr pracoviště/okruhu a tisk FSK, ale zachovává svá Traceability oprávnění.
+- FSK uživatel má v sidebaru dostupný Nový zápis, profil, odhlášení, jazyk, téma a kompaktní režim menu.
+- Superadmin může v `Skripty` dočasně simulovat oprávnění libovolné role a vrátit se na skutečnou roli bez nového přihlášení.
+- Ostatní role se v simulátoru řídí stejnými permission podmínkami jako skutečně přihlášený uživatel.
+- Manuál byl zkontrolován proti současným oprávněním a obsahuje aktuální postupy k OEE/NOK, Traceability, tisku, správě uživatelů a simulátoru.
+
+## Poznamka k verzi v5.6.0
+
+Runtime bootstrap rozšiřuje databázový enum o typ `vstrikovna` a nastaví jej na určených pracovištích i souvisejících záznamech. Před prvním spuštěním nové verze vytvořte zálohu databáze.
+
+- Release `v5.6.0` přidává výchozí klasifikaci NOK operátora pro každé pracoviště a její přepis v konkrétním záznamu.
+- Testovací instance `v3.4` si ponechává vlastní URL; verze aplikace se tímto nemění na produkční konfiguraci.
 
 ## Obsah
 1. [Přehled aplikace](#1-přehled-aplikace)
@@ -62,6 +101,12 @@ Aplikace DVD slouží k **zaznamenávání výrobních dat** během pracovní sm
 4. Pokud je heslo iniciální, systém vás pustí pouze na stránku **Můj profil**.
 5. Dokud heslo nezměníte, ostatní stránky administrace nejsou dostupné.
 6. Po uložení nového hesla se odemkne standardní přístup podle vaší role.
+
+### Speciální účty
+
+- `fsk_print`: pouze výběr výrobního okruhu/pracoviště a tisk; povolen je profil, jazyk, téma, kompaktní menu a odhlášení.
+- `writer` / Traceability Lineleader: Traceability funkce podle role a navíc read-only tiskový režim na `index.php`; zápis výrobních dat není dostupný.
+- `superadmin`: v `Správa → Scripty` může simulovat libovolnou roli. Po simulaci se menu řídí simulovanými právy a položka Scripty zůstává dostupná pro návrat.
 
 
 > Pokud vidíte **"Přístup omezen"**, nemáte práva pro zápis. Kontaktujte administrátora.
@@ -131,6 +176,7 @@ Aplikace se automaticky přizpůsobuje velikosti obrazovky:
 1. **Zvolte typ výroby** (horní tlačítka):
    - **SÉRIE** – standardní sériová výroba
    - **FILTRY** – EMV filtry (v nabídce pracovišť uvidíte jen `EMV Filter` + `Ostatní`/`Šrot`)
+   - **VSTŘIKOVNA** – výrobní okruh vstřikovny
 
 2. **Zaměřte se na Sekci 01 – Identifikace**:
    - Začněte psát do pole **Pracoviště** a vyberte položku z našeptávače (povinné *)
@@ -193,7 +239,8 @@ Skupiny:
 
 1. Vyhledejte relevantní NOK kód
 2. Zadejte počet kusů s danou chybou
-3. Kódy jsou seskupeny:
+3. Volba **Nezapočítávat operátorovi** ponechá NOK v celkovém výrobním součtu, ale vyloučí jej z operátorského Scrap a kvality OEE. Výchozí volbu určuje číselník NOK pro konkrétní pracoviště; u zápisu ji lze přepnout.
+4. Kódy jsou seskupeny:
    - Manipulace, Materiál, Plast, Kov, Drát, Montáž, Svár, Testy, Busbar, Kondenzátor, Ventil, CAPA, Ostatní
 
 > Badge v sekci 08 ukazuje **celkový počet NOK kusů**
@@ -213,6 +260,8 @@ Zde vidíte automatické výpočty v reálném čase:
 - **Kvalita (Q)** – (vyrobeno − nok) / vyrobeno
 - **OEE** = A × P × Q
 - **Cíl**: 85% (zelená = OK, oranžová = málo, červená = kriticky)
+
+U operátorského OEE se rozlišuje fyzický NOK a NOK započítaný operátorovi. Volba **Nezapočítávat operátorovi** ponechá kus v celkovém NOK, ale vyřadí jej z operátorského Scrap/Q. Dostupnost a kvalita mají strop 100 %, výkon 150 % a celkové OEE 100 %.
 
 ---
 
@@ -420,9 +469,12 @@ OEE = Dostupnost (A) × Výkon (P) × Kvalita (Q)
 
 | Zkratka | Akce |
 |---------|------|
-| **Ctrl+Alt+Enter** (2× stisk) | 1. otevře potvrzovací dialog, 2. uloží záznam |
+| **Ctrl+Shift+Enter** nebo **Ctrl+Alt+Enter** | Otevře potvrzovací dialog a následně uloží záznam (běžné zapisovací role) |
+| **Ctrl+P** v print-only režimu | Připraví a vytiskne A4 šablonu bez ukládání |
 | **Enter** v textovém poli | Přesun na další pole (ne odeslání) |
 | Tab | Standard. přechod mezi poli |
+
+V režimu `fsk_print` a `writer` se ukládání i zkratky pro uložení ignorují. Tisk je možný i bez vybraného pracoviště; v takovém případě se vytiskne prázdná šablona.
 
 ---
 
@@ -431,6 +483,23 @@ OEE = Dostupnost (A) × Výkon (P) × Kvalita (Q)
 ### Urychlení vyplňování
 
 ---
+
+## 7a. Read-only tiskový režim FSK
+
+Role `fsk_print` a Traceability Lineleader (`writer`) mohou otevřít `index.php` bez možnosti zadávat nebo ukládat výrobní data.
+
+### Postup tisku
+
+1. Vyberte výrobní okruh: **Série**, **Filtry** nebo **Vstřikovna**.
+2. Volitelně vyberte pracoviště. Po výběru se do šablony doplní jeho údaje.
+3. Klikněte na **Tisk** nebo stiskněte **Ctrl+P**.
+4. Bez pracoviště se vytiskne prázdný formulář A4.
+
+### Dostupné ovládání
+
+- Sidebar: **Nový zápis**, profil, odhlášení, jazyk, barevné téma a kompaktní režim menu.
+- Skryté jsou všechny vstupy výrobního zápisu, tlačítka Uložit/Reset a administrativní funkce.
+- `fsk_print` má přístup pouze na index, profil, logout a řízení simulace; přímé otevření jiné routy je odmítnuto.
 
 ## 8. Traceability Kiosk
 
@@ -640,7 +709,7 @@ Navigace: **Admin → TV**
 
 Navigace: **Admin → Traceability²**
 
-Dostupné pro role: **admin**, **superadmin**.
+Dostupné pro role: **superadmin**, **admin**, **traceability**, **writer** a **read** podle konkrétního reportu a akce.
 
 ### Účel
 
@@ -702,9 +771,21 @@ Navigace: **Správa -> DVD -> Směny** (`admin/smeny.php`)
 
 ---
 
+## Denní checklist seřizovače
+
+V navigaci otevřete **Správa → DVD → Denní checklist** a vyberte projekt. Checklist zobrazuje úkony podle katalogu pro daný projekt; vyplňte požadované kontroly a uložte záznam.
+
+Uložené checklisty lze prohlížet a upravovat v **Editoru checklistů seřizovačů**. Katalog úkonů spravujte v **Katalogu checklistů seřizovače**; předlohu lze načíst z Excelového souboru `uploads/checklist.xlsx`.
+
+---
+
 ## 16. Správa uživatelů a CSV import
 
-Tato část je dostupná pouze pro roli Superadmin.
+Správa uživatelů je dostupná rolím `superadmin` a `admin` podle konkrétní sekce. Scripty a release/deploy zůstávají pouze pro skutečného `superadmin`.
+
+### Import pracovníků
+
+CSV používá pořadí `interni_id;jmeno;ukonceni;smennost;role`. Pole `role` je volný text bez omezeného seznamu hodnot; prázdné nebo chybějící pole se uloží jako `D`.
 
 ### Operátor s přihlášením kartou (role `read`)
 
@@ -739,8 +820,10 @@ svobodap;Petr Svoboda;read;0;JineBezpecneHeslo456
 ### Pravidla importu
 
 - username musí mít aspoň 3 znaky.
-- heslo musí mít aspoň 5 znaků.
-- role: superadmin, admin, write, read, traceability (jiná hodnota se bere jako read).
+- heslo má minimálně 12 znaků pro běžné účty a 6 znaků pro `read`, `writer`, `rework`, `rework_admin`, `serizovac`, `serizovac_admin` a `fsk_print`.
+- podporované role: `superadmin`, `admin`, `write`, `read`, `traceability`, `writer`, `rework`, `rework_admin`, `serizovac`, `serizovac_admin`, `fsk_print`.
+- `fsk_print` je výhradní role a nelze ji kombinovat s jinou rolí.
+- `fsk_print` může mít iniciační heslo; při prvním přihlášení je přesměrován do profilu, kde jej změní.
 - aktivni: 1/true/yes/ano = aktivní, ostatní hodnoty = neaktivní.
 - duplicitní username se přeskočí.
 
@@ -750,7 +833,7 @@ Po importu se zobrazí souhrn: importováno / přeskočeno.
 
 ## 17. Deploy release do produkce
 
-Od verze `v5.1.1` je release deploy součástí stránky `Správa -> Skripty`.
+Release deploy je součástí stránky `Správa -> Skripty` a je dostupný pouze skutečnému superadminovi.
 
 ### Kdo může deploy spustit
 
@@ -758,8 +841,8 @@ Od verze `v5.1.1` je release deploy součástí stránky `Správa -> Skripty`.
 
 ### Postup
 
-1. Otevři `Správa -> Skripty`.
-2. V sekci **Deploy release** vyber release tag (např. `v5.1.1`).
+1. Otevři `Správa -> Skripty` jako skutečný superadmin.
+2. V sekci **Deploy release** vyber release tag (např. `v5.6.6`).
 3. Klikni na **Nasadit release**.
 4. Zkontroluj výstup s výsledkem (`OK`/`ERR`).
 
@@ -779,11 +862,12 @@ Od verze `v5.1.1` je release deploy součástí stránky `Správa -> Skripty`.
 
 ## 18. Uživatelský manuál v aplikaci
 
-Od verze v5.2.4 je v levém menu položka **Uživatelský manuál** (`admin/manual.php`).
+V levém menu je položka **Uživatelský manuál** (`admin/manual.php`) podle oprávnění aktuální role.
 
 ### Co zobrazuje
 
-- Pouze sekce a moduly dostupné pro roli přihlášeného uživatele (DVD, Traceability, Opravy, Naladčci, Správa, Účet).
+- Pouze sekce a moduly dostupné pro roli přihlášeného uživatele (DVD, Traceability, Opravy, Seřizovači, Správa, Účet).
+- Při simulaci se použijí stejná práva jako v hlavním sidebaru; skutečný superadmin má dostupný návrat do `Scripty`.
 - Pro každý modul: účel, kroky, pravidla zadávání, časté chyby, tipy.
 
 ### Режиmy detailu
@@ -849,7 +933,15 @@ Formulář vás upozorní – musíte vyplnit povinná pole (Pracoviště, Datum
 
 ### Mám práva pro čtení (Read) – mohu přidávat záznamy?
 
-Ne. **Read role** vidí jen TV mode. Pro přidávání potřebujete **Write** nebo **Superadmin**. Role **Traceability** má readonly přístup ke Záznamům, OEE, TV a Traceability² reportu.
+Ne. `read` nemůže zapisovat výrobní data. Vidí reporty, OEE, Traceability a TV podle aktuálního menu. `writer` může upravovat Traceability podle svých oprávnění, ale hlavní výrobní formulář používá pouze v read-only tiskovém režimu. Pro nový výrobní zápis potřebujete `write`, `admin` nebo `superadmin`.
+
+### Jak funguje role FSK print?
+
+`fsk_print` může vybrat výrobní okruh a volitelně pracoviště a vytisknout A4 šablonu. Nemůže ukládat výrobní data ani otevírat ostatní routy. Profil, jazyk, téma, kompaktní menu a odhlášení zůstávají dostupné.
+
+### Jak funguje simulátor rolí?
+
+Pouze skutečný superadmin otevře **Scripty → Simulátor rolí**. Po výběru se menu a dostupné funkce řídí simulovanou rolí. Položka **Scripty** zůstane dostupná pouze pro návrat do simulátoru; skripty, release a deploy akce jsou během simulace blokované.
 
 ### Jak se dostanu do správy uživatelů?
 
@@ -865,5 +957,5 @@ Problém? Kontaktujte:
 
 ---
 
-**Verze:** 5.2.4
-**Poslední aktualizace:** 7. 7. 2026
+**Verze:** 5.6.6
+**Poslední aktualizace:** 6. 10. 2026

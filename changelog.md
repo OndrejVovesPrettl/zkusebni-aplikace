@@ -3,6 +3,69 @@
 Tento soubor je centralni changelog projektu.
 Kazda nova verze musi mit vlastni sekci ve formatu ## vX.Y.Z.
 
+## v5.6.6 (2026-10-06)
+
+### Zmeny
+- Editor NOK matice pri vstupu vyzaduje vyber jednoho az peti pracovist; podporuje hledani a nacita pouze jejich AFO sloupce.
+- Ukladani zachovava nastaveni ostatnich pracovist a server odmita neplatny nebo vice nez petipolozkovy vyber.
+- Tabulka AFO matice lepe vyuziva dostupnou sirku, zatimco leva cast s ID a popisem zustava kompaktni.
+- Opraveno filtrovani seznamu pracovist a vyska vyberoveho modalu zustava pevna behem hledani.
+- Tlacitko `Prestavet z Excelu` je skryte; backendova akce zustava zachovana.
+
+## v5.6.5 (2026-10-06)
+
+### Zmeny
+- Zmena nebo zruseni vybraneho pracoviste v hlavnim formulari vymaze jeho puvodni data; tisk kontroluje platne ID a nevytiskne neaktualni identifikacni udaje.
+- NOK polozky bez mapovani AFO jsou skryte, aby formular nenabizel chybne vady pro nezmapovane pracoviste.
+- Filtry v prehledu zaznamu se pamatuji pri navratu z detailu, editace a mazani; Reset jejich ulozenou hodnotu smaze.
+- Detail pracovnika ma responzivnejsi rozlozeni a lepe zobrazuje dlouhe kody a nazvy pracovist.
+
+## v5.6.4 (2026-10-05)
+
+### Zmeny
+- Pridan sloupec `datum_ukonceni`, stavove filtrovani **Vse / Ukonceno / Aktivni** a barevny status badge bez vypisu data.
+- Hlavni formular nabizi pouze pracovniky s `aktivni = 1` a datem ukonceni v budoucnosti.
+- CSV import cte ctvrty sloupec `ukonceni`; duplicity podle `interni_id` lze rozhodnout v modalu, skupiny ukoncene pred dneskem se preskoci.
+- Pridany samostatne select filtry smennosti/tridy a razeni sloupcu ASC/DESC/vypnuto.
+- Rucni i automaticky sync uklada ukonceni a zachovava tridy pracovniku.
+
+## v5.6.3 (2026-10-01)
+
+### Zmeny
+- Role `writer` muze pouzit hlavni formular v read-only rezimu k vyberu pracoviste a tisku; zapis vyrobnich dat zustava zakazan.
+- Simulator roli po zmene pouziva POST/Redirect/GET a menu odpovida aktualni simulovane roli.
+- Opraven OEE Top NOK JOIN pri nekompatibilni MySQL kolaci.
+- Aktualizovan `MANUAL.md` i `admin/manual.php` podle aktualnich roli, tiskoveho rezimu, NOK/OEE a simulace.
+
+## v5.6.2 (2026-09-30)
+
+### Zmeny
+- Pridana vyhradni role `fsk_print` s read-only rezimem, vyberem pracoviste/okruhu a tiskem prazdne i vyplnene A4 sablony.
+- FSK sidebar obsahuje Novy zapis, profil, odhlaseni a ovladani tematu, jazyka a kompaktniho menu.
+- Pridany centralni route guard a podpora inicialni zmeny hesla pro FSK.
+- Pridan simulator roli pro skutecneho superadmina; simulace pouziva stejne navigacni permission podminky jako realne role a lze ji ukoncit bez noveho prihlaseni.
+
+## v5.6.0 (2026-09-30)
+
+### Zmeny
+- Vyjimka NOK z operátorského Scrap/OEE je nastavitelna pro kazdou kombinaci pracoviste (AFO) a NOK kodu v matici.
+- Default z AFO matice se nacita pri novem zapisu; operátor/zapisovatel ho muze pro konkretni zaznam zmenit.
+- Vytvoreni a editace ukladaji fyzicky NOK i samostatny soucet NOK zapocitavany operatorovi; historie bez explicitni hodnoty zustava plne zapocitana.
+- Operátorské Scrap, Q/OEE, prehledy a Top NOK rozlisuji celkovy NOK a NOK operatora; celopodnikove vyrobni soucty zustavaji fyzicke.
+- Rebuild a reimport NOK matice zachovava per-AFO nastaveni operatora.
+- Runtime migrace prida default vyjimky do `nok_matrix_afo`; vychozi vyjimka je vypnuta pro vsechny bunky.
+
+## v5.5.0 (2026-09-29)
+
+### Zmeny
+- Synchronizovany funkcni stav modulu mezi `v5.3` a zakladni instalaci `v3.4`; lokalni `APP_URL` zustava zachovana pro testovaci instanci.
+- Pridan mesicni prehled vysledovky operatoru vcetne filtru, OEE/vykonu a CSV exportu.
+- Sjednocen agregovany vypocet OEE a opraveny souhrny sdilenych zaznamu tak, aby se ve statistikach zapocitaly pouze jednou.
+- Detail zaznamu nyni zobrazuje skutecne ciselne ID pracoviste.
+- Pridan denni checklist serizovace, editor checklistu a sprava katalogu ukonu podle projektu.
+- Runtime bootstrap rozsiruje typ pracovist a zaznamu o `vstrikovna` a prirazuje tento typ definovanym pracovistim a jejich zaznamum.
+- Aktualizovana sprava pracovist, editace zaznamu a souvisejici formularove a importni toky.
+
 ## v5.4.0 (2026-08-31)
 
 ### Zmeny

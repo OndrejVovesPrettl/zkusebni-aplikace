@@ -13,14 +13,14 @@ $isTraceabilityManager = hasOnlyRole('traceability');
 $scope = (string)get('scope', '');
 $isTraceabilityScope = $isTraceabilityManager || $scope === 'traceability';
 
-$allManageableRoles = ['superadmin', 'admin', 'write', 'read', 'traceability', 'writer', 'rework', 'rework_admin', 'serizovac', 'serizovac_admin'];
+$allManageableRoles = ['superadmin', 'admin', 'write', 'read', 'traceability', 'writer', 'rework', 'rework_admin', 'serizovac', 'serizovac_admin', 'fsk_print'];
 $traceabilityManageableRoles = ['writer', 'read'];
 $manageableRoles = $isTraceabilityManager ? $traceabilityManageableRoles : $allManageableRoles;
 
-$rolePrioritySql = "'superadmin','admin','traceability','writer','write','rework_admin','rework','serizovac_admin','serizovac','read'";
+$rolePrioritySql = "'superadmin','admin','traceability','writer','write','rework_admin','rework','serizovac_admin','serizovac','fsk_print','read'";
 
 $rolePasswordMinLen = static function (string $role): int {
-    return in_array($role, ['writer', 'read', 'rework', 'rework_admin', 'serizovac', 'serizovac_admin'], true) ? 6 : 12;
+    return in_array($role, ['writer', 'read', 'rework', 'rework_admin', 'serizovac', 'serizovac_admin', 'fsk_print'], true) ? 6 : 12;
 };
 
 $roleLabel = static function (string $role): string {
@@ -34,6 +34,7 @@ $roleLabel = static function (string $role): string {
         'rework_admin' => t('role_display_rework_admin'),
         'serizovac' => t('role_display_serizovac'),
         'serizovac_admin' => t('role_display_serizovac_admin'),
+        'fsk_print' => t('role_display_fsk_print'),
         default => t('role_display_read'),
     };
 };
@@ -49,12 +50,13 @@ $roleBadgeBackground = static function (string $role): string {
         'rework_admin' => '#7c3aed',
         'serizovac' => '#14b8a6',
         'serizovac_admin' => '#0f766e',
+        'fsk_print' => '#64748b',
         default => 'var(--muted)',
     };
 };
 
 $roleBadgeColor = static function (string $role): string {
-    return in_array($role, ['superadmin', 'admin', 'traceability', 'writer', 'rework', 'rework_admin', 'serizovac', 'serizovac_admin'], true) ? 'var(--bg)' : 'var(--text)';
+    return in_array($role, ['superadmin', 'admin', 'traceability', 'writer', 'rework', 'rework_admin', 'serizovac', 'serizovac_admin', 'fsk_print'], true) ? 'var(--bg)' : 'var(--text)';
 };
 
 $normalizeRoleSelection = static function ($rawRoles) use ($manageableRoles, $isTraceabilityManager): array {
@@ -272,7 +274,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'reset_password'
     if (!$target || ($isTraceabilityManager && !$rolesAreManageable($targetRoles))) {
         $error = t('insufficient_role_permission');
     } else {
-    db()->prepare('UPDATE users SET password_changed_at = NULL WHERE id=?')->execute([$userId]);
+    $passwordChangedAt = null;
+    db()->prepare('UPDATE users SET password_changed_at = ? WHERE id=?')->execute([$passwordChangedAt, $userId]);
     logAction('USER_PASSWORD_RESET', 'users', $userId, [], [], t('password_reset_to_initial'));
     redirect(APP_URL . '/admin/users.php?ok=1');
     }
@@ -308,7 +311,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'resend_initial_
 
         if ($mailResult['ok']) {
             $hash = password_hash($initialPassword, PASSWORD_DEFAULT);
-            db()->prepare('UPDATE users SET pass_hash=?, password_changed_at=NULL WHERE id=?')->execute([$hash, $userId]);
+            $passwordChangedAt = null;
+            db()->prepare('UPDATE users SET pass_hash=?, password_changed_at=? WHERE id=?')->execute([$hash, $passwordChangedAt, $userId]);
 
             logAction(
                 'USER_INIT_MAIL_RESENT',
@@ -400,10 +404,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
                 $newUserId = (int)db()->lastInsertId();
                 if ($newUserId > 0) {
                     saveUserRoles($newUserId, $selectedRoles);
-                    db()->prepare('UPDATE users SET traceability_rights = ? WHERE id = ?')
-                        ->execute([mapRoleToTraceabilityRights($primaryRole), $newUserId]);
-                    // $password = číslo karty; předáme jako cardCode do sync
-                    $syncUserToTraceability($newUserId, $username, $skutecneJmeno, $primaryRole, (string)$password);
+                    if ($primaryRole !== 'fsk_print') {
+                        db()->prepare('UPDATE users SET traceability_rights = ? WHERE id = ?')
+                            ->execute([mapRoleToTraceabilityRights($primaryRole), $newUserId]);
+                        $syncUserToTraceability($newUserId, $username, $skutecneJmeno, $primaryRole, (string)$password);
+                    }
                 }
                 logAction('USER_CREATE', 'users', null, [], ['username' => $username, 'role' => $primaryRole, 'roles' => implode(',', $selectedRoles), 'skutecneJmeno' => $skutecneJmeno], t('user_created'));
 
@@ -429,18 +434,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save') {
                     // no-op
                 } elseif ($password) {
                     $hash = password_hash($password, PASSWORD_DEFAULT);
-                    db()->prepare('UPDATE users SET username=?, skutecneJmeno=?, pass_hash=?, role=?, active=? WHERE id=?')
-                       ->execute([$username, $skutecneJmeno, $hash, $primaryRole, $active, $id]);
+                          db()->prepare('UPDATE users SET username=?, skutecneJmeno=?, pass_hash=?, role=?, active=?, password_changed_at=CASE WHEN ? = "fsk_print" THEN NOW() ELSE password_changed_at END WHERE id=?')
+                              ->execute([$username, $skutecneJmeno, $hash, $primaryRole, $active, $primaryRole, $id]);
                 } else {
-                    db()->prepare('UPDATE users SET username=?, skutecneJmeno=?, role=?, active=? WHERE id=?')
-                       ->execute([$username, $skutecneJmeno, $primaryRole, $active, $id]);
+                          db()->prepare('UPDATE users SET username=?, skutecneJmeno=?, role=?, active=?, password_changed_at=CASE WHEN ? = "fsk_print" THEN COALESCE(password_changed_at, NOW()) ELSE password_changed_at END WHERE id=?')
+                              ->execute([$username, $skutecneJmeno, $primaryRole, $active, $primaryRole, $id]);
                 }
                 if (empty($error)) {
                     saveUserRoles((int)$id, $selectedRoles);
-                    db()->prepare('UPDATE users SET traceability_rights = ? WHERE id = ?')
-                        ->execute([mapRoleToTraceabilityRights($primaryRole), $id]);
-                    // Při editaci předat cardCode pouze pokud bylo zadáno nové heslo
-                    $syncUserToTraceability((int)$id, $username, $skutecneJmeno, $primaryRole, (string)$password);
+                    if ($primaryRole !== 'fsk_print') {
+                        db()->prepare('UPDATE users SET traceability_rights = ? WHERE id = ?')
+                            ->execute([mapRoleToTraceabilityRights($primaryRole), $id]);
+                        $syncUserToTraceability((int)$id, $username, $skutecneJmeno, $primaryRole, (string)$password);
+                    }
                 }
                 if (empty($error)) logAction('USER_UPDATE', 'users', $id, 
                          ['username' => $oldUser['username'], 'role' => $oldUser['role'], 'roles' => implode(',', $oldUserRoles), 'skutecneJmeno' => $oldUser['skutecneJmeno'] ?? ''],
@@ -500,9 +506,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'csv_import') {
                         $newUserId = (int)db()->lastInsertId();
                         if ($newUserId > 0) {
                             saveUserRoles($newUserId, $selectedRoles);
-                            db()->prepare('UPDATE users SET traceability_rights = ? WHERE id = ?')
-                                ->execute([mapRoleToTraceabilityRights($primaryRole), $newUserId]);
-                            $syncUserToTraceability($newUserId, $username, (string)($realName ?? ''), $primaryRole);
+                            if ($primaryRole === 'fsk_print') {
+                                db()->prepare('UPDATE users SET password_changed_at=NOW() WHERE id=?')->execute([$newUserId]);
+                            } else {
+                                db()->prepare('UPDATE users SET traceability_rights = ? WHERE id = ?')
+                                    ->execute([mapRoleToTraceabilityRights($primaryRole), $newUserId]);
+                                $syncUserToTraceability($newUserId, $username, (string)($realName ?? ''), $primaryRole);
+                            }
                         }
                     }
                 } catch (Exception) {
@@ -564,6 +574,7 @@ require APP_ROOT . '/includes/layout.php';
                         <option value="rework_admin" <?= $fRole==='rework_admin'?'selected':'' ?>><?= t('role_display_rework_admin') ?></option>
                         <option value="serizovac" <?= $fRole==='serizovac'?'selected':'' ?>><?= t('role_display_serizovac') ?></option>
                         <option value="serizovac_admin" <?= $fRole==='serizovac_admin'?'selected':'' ?>><?= t('role_display_serizovac_admin') ?></option>
+                        <option value="fsk_print" <?= $fRole==='fsk_print'?'selected':'' ?>><?= t('role_display_fsk_print') ?></option>
                         <?php endif; ?>
                         <option value="writer" <?= $fRole==='writer'?'selected':'' ?>><?= t('role_display_writer') ?></option>
                         <option value="read" <?= $fRole==='read'?'selected':'' ?>><?= t('role_display_read') ?></option>
@@ -887,6 +898,10 @@ require APP_ROOT . '/includes/layout.php';
                                 <input class="role-chip-input" type="checkbox" id="role_serizovac_admin" name="roles[]" value="serizovac_admin">
                                 <label class="role-chip-label" for="role_serizovac_admin"><?= t('role_label_serizovac_admin') ?></label>
                             </div>
+                            <div>
+                                <input class="role-chip-input" type="checkbox" id="role_fsk_print" name="roles[]" value="fsk_print">
+                                <label class="role-chip-label" for="role_fsk_print"><?= t('role_label_fsk_print') ?></label>
+                            </div>
                             <?php endif; ?>
                             <div>
                                 <input class="role-chip-input" type="checkbox" id="role_writer" name="roles[]" value="writer">
@@ -1015,7 +1030,7 @@ function updatePasswordMinHint() {
     const hintEl = document.getElementById('passwordMinCharsHint');
     if (!hintEl) return;
     const selectedRoles = getSelectedRoles();
-    const hasShortPasswordRole = selectedRoles.some((role) => role === 'writer' || role === 'read' || role === 'rework' || role === 'rework_admin' || role === 'serizovac' || role === 'serizovac_admin');
+    const hasShortPasswordRole = selectedRoles.some((role) => role === 'writer' || role === 'read' || role === 'rework' || role === 'rework_admin' || role === 'serizovac' || role === 'serizovac_admin' || role === 'fsk_print');
     const minLen = hasShortPasswordRole ? 6 : 12;
     hintEl.textContent = String(minLen);
 }
@@ -1027,6 +1042,12 @@ function setSelectedRoles(roles) {
     roleInputs.forEach((input) => {
         input.checked = selected.has(String(input.value).toLowerCase());
     });
+    const fskInput = document.getElementById('role_fsk_print');
+    if (fskInput?.checked) {
+        roleInputs.forEach((input) => {
+            if (input !== fskInput) input.checked = false;
+        });
+    }
     if (getSelectedRoles().length === 0) {
         const firstInput = roleInputs[0];
         if (firstInput) firstInput.checked = true;
@@ -1036,6 +1057,20 @@ function setSelectedRoles(roles) {
 function getSelectedRoles() {
     return Array.from(document.querySelectorAll('input[name="roles[]"]:checked')).map((input) => input.value);
 }
+
+document.querySelectorAll('input[name="roles[]"]').forEach((input) => {
+    input.addEventListener('change', () => {
+        const fskInput = document.getElementById('role_fsk_print');
+        if (input.value === 'fsk_print' && input.checked) {
+            document.querySelectorAll('input[name="roles[]"]').forEach((other) => {
+                if (other !== input) other.checked = false;
+            });
+        } else if (input.checked && fskInput) {
+            fskInput.checked = false;
+        }
+        updatePasswordMinHint();
+    });
+});
 
 function confirmDeleteUser(button) {
     document.getElementById('deleteUserId').value = button.dataset.deleteUserId || '';

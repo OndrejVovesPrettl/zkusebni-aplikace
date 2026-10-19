@@ -62,32 +62,29 @@ $downtimeJoin = "LEFT JOIN (
     GROUP BY zapis_id
 ) dt ON dt.zapis_id = z.id";
 
-// Pomocný SQL výraz pro vážené OEE konkrétního pracovníka
-$oeeSqlExpr = "LEAST(1.0, GREATEST(0.0,
-    -- Dostupnost (A)
-    (
-        SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(dt.dt_plan, 0) - COALESCE(dt.dt_neplan, 0)))
-        / NULLIF(SUM(GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(dt.dt_plan, 0))), 0)
-    )
-    *
-    -- Výkonnost (P)
-    (
-        SUM(z.vyrobeno_ks)
-        / NULLIF(SUM(
-            CASE 
-                WHEN z.cycle_time_min > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(dt.dt_plan, 0) - COALESCE(dt.dt_neplan, 0)) / z.cycle_time_min
-                WHEN z.norma_ks > 0 THEN GREATEST(0, z.pracovni_doba_min - z.pauza_min - COALESCE(dt.dt_plan, 0) - COALESCE(dt.dt_neplan, 0)) * z.norma_ks
-                ELSE 0
-            END
-        ), 0)
-    )
-    *
-    -- Kvalita (Q)
-    (
-        SUM(GREATEST(0, z.vyrobeno_ks - z.nok_ks))
-        / NULLIF(SUM(z.vyrobeno_ks), 0)
-    )
-)) * 100";
+// --- BEZPEČNÝ VÝPOČET OEE S PŮVODNÍ LOGIKOU A STROPY ---
+$sqlNetTime = "GREATEST(0, COALESCE(z.pracovni_doba_min, 0) - COALESCE(z.pauza_min, 0))";
+$sqlPlanTime = "GREATEST(0, $sqlNetTime - COALESCE(dt.dt_plan, 0))";
+$sqlOpTime = "GREATEST(0, $sqlNetTime - COALESCE(dt.dt_plan, 0) - COALESCE(dt.dt_neplan, 0))";
+
+// Očekávané kusy přesně podle staré logiky - zamezuje střelbě na 150 % u nenormovaných dílů
+$sqlExpected = "SUM(CASE 
+    WHEN z.cycle_time_min > 0 THEN $sqlOpTime / z.cycle_time_min
+    WHEN z.norma_ks > 0 THEN $sqlOpTime * z.norma_ks
+    ELSE z.vyrobeno_ks 
+END)";
+
+// Dostupnost (A) - max 100%
+$sqlA = "LEAST(1.0, GREATEST(0.0, SUM($sqlOpTime) / NULLIF(SUM($sqlPlanTime), 0)))";
+
+// Výkon (P) - max 150%
+$sqlP = "LEAST(1.5, GREATEST(0.0, SUM(z.vyrobeno_ks) / NULLIF($sqlExpected, 0)))";
+
+// Kvalita (Q) - max 100%
+$sqlQ = "LEAST(1.0, GREATEST(0.0, SUM(GREATEST(0, z.vyrobeno_ks - COALESCE(z.nok_operator_ks, z.nok_ks))) / NULLIF(SUM(z.vyrobeno_ks), 0)))";
+
+// Celkové OEE s maximem 100%
+$oeeSqlExpr = "LEAST(1.0, ($sqlA * $sqlP * $sqlQ)) * 100";
 
 $worker = db_row("SELECT
     COALESCE(CAST(p_id.id AS CHAR), CAST(p_interni.id AS CHAR), CAST(pn.id AS CHAR), CONCAT('manual:', LOWER(TRIM(zp.jmeno)))) AS worker_key,
@@ -99,12 +96,13 @@ $worker = db_row("SELECT
         MAX(z.datum) AS posledni_datum,
         SUM(z.vyrobeno_ks) AS vyrobeno_ks,
         SUM(z.nok_ks) AS nok_ks,
+        SUM(COALESCE(z.nok_operator_ks, z.nok_ks)) AS nok_operator_ks,
         SUM(z.vyrobeno_dobre_ks) AS dobre_ks,
         SUM(z.cisty_cas_min) AS cisty_cas_min,
         SUM(COALESCE(dt.dt_total,0)) AS prostoj_celkem_min,
         ROUND(COALESCE($oeeSqlExpr, 0), 2) AS avg_oee,
-        CASE WHEN SUM(z.vyrobeno_ks) > 0 THEN (SUM(z.nok_ks) / SUM(z.vyrobeno_ks)) * 100 ELSE NULL END AS nok_rate,
-        CASE WHEN SUM(z.vyrobeno_ks) > 0 THEN (SUM(z.vyrobeno_dobre_ks) / SUM(z.vyrobeno_ks)) * 100 ELSE NULL END AS good_rate
+        CASE WHEN SUM(z.vyrobeno_ks) > 0 THEN (SUM(COALESCE(z.nok_operator_ks, z.nok_ks)) / SUM(z.vyrobeno_ks)) * 100 ELSE NULL END AS nok_rate,
+        CASE WHEN SUM(z.vyrobeno_ks) > 0 THEN (SUM(GREATEST(0, z.vyrobeno_ks - COALESCE(z.nok_operator_ks, z.nok_ks))) / SUM(z.vyrobeno_ks)) * 100 ELSE NULL END AS good_rate
     FROM zapis_pracovnici zp
     JOIN zapisy z ON z.id = zp.zapis_id
     $workerIdJoin
@@ -163,6 +161,7 @@ $records = db_all("SELECT
         z.nazev_dilu,
         z.vyrobeno_ks,
         z.nok_ks,
+        COALESCE(z.nok_operator_ks, z.nok_ks) AS nok_operator_ks,
         z.cisty_cas_min,
         z.oee_procent,
         COALESCE(dt.dt_total,0) AS prostoj_celkem_min
@@ -172,7 +171,7 @@ $records = db_all("SELECT
     $workerNameJoin
     $downtimeJoin
     $whereSql
-    GROUP BY z.id, z.datum, z.smena, z.skupina, z.kod_pracovisite, z.nazev_pracovisite, z.nazev_dilu, z.vyrobeno_ks, z.nok_ks, z.cisty_cas_min, z.oee_procent, dt.dt_total
+    GROUP BY z.id, z.datum, z.smena, z.skupina, z.kod_pracovisite, z.nazev_pracovisite, z.nazev_dilu, z.vyrobeno_ks, z.nok_ks, z.nok_operator_ks, z.cisty_cas_min, z.oee_procent, dt.dt_total
     ORDER BY z.datum DESC, z.id DESC
     LIMIT 500", $params);
 
@@ -207,19 +206,20 @@ require APP_ROOT . '/includes/layout.php';
     <?php $stats = [
         [number_format((int)($worker['zaznamu'] ?? 0)), t('records_btn'), 'bi-file-earmark-text'],
         [number_format((int)($worker['vyrobeno_ks'] ?? 0)), t('produced_ks'), 'bi-boxes'],
-        [number_format((int)($worker['nok_ks'] ?? 0)), t('nok_ks'), 'bi-x-octagon'],
-        [$worker['nok_rate'] !== null ? number_format((float)$worker['nok_rate'], 2) . '%' : '—', t('kt_nok_rate'), 'bi-percent'],
+        [number_format((int)($worker['nok_ks'] ?? 0)), t('nok_total'), 'bi-x-octagon'],
+        [number_format((int)($worker['nok_operator_ks'] ?? 0)), t('summary_operator_nok'), 'bi-person-x'],
+        [$worker['nok_rate'] !== null ? number_format((float)$worker['nok_rate'], 2) . '%' : '—', t('nok_operator_rate'), 'bi-percent'],
         [$worker['avg_oee'] !== null ? round((float)$worker['avg_oee'], 1) . '%' : '—', t('avg_oee'), 'bi-speedometer2'],
         [number_format((int)($worker['prostoj_celkem_min'] ?? 0)) . ' min', t('downtime_min'), 'bi-pause-circle'],
     ]; foreach ($stats as [$val, $lbl, $ico]): ?>
-    <div class="col-6 col-md-4 col-xl-2">
+    <div class="col-6 col-md-4 col-lg-3">
         <div class="stat-card"><div class="stat-val"><?= $val ?></div><div class="stat-label"><i class="bi <?= $ico ?> me-1"></i><?= $lbl ?></div></div>
     </div>
     <?php endforeach; ?>
 </div>
 
-<div class="row g-3 mb-4">
-    <div class="col-12 col-lg-4">
+<div class="row g-3 mb-4 d-flex align-items-stretch">
+    <div class="col-12 col-lg-3">
         <div class="card-dvd h-100">
             <div class="card-header-dvd"><span class="s-num">01</span><span class="s-title"><?= t('nav_workers') ?></span></div>
             <div class="card-body-dvd">
@@ -233,30 +233,31 @@ require APP_ROOT . '/includes/layout.php';
             </div>
         </div>
     </div>
-    <div class="col-12 col-lg-8">
+    <div class="col-12 col-lg-9">
         <div class="card-dvd h-100">
             <div class="card-header-dvd"><span class="s-num">02</span><span class="s-title"><?= t('records_title') ?></span></div>
             <div class="card-body-dvd">
                 <div class="overflow-x">
                     <table class="tbl">
                         <thead><tr>
-                            <th>ID</th><th><?= t('datum') ?></th><th><?= t('smena') ?></th><th><?= t('group') ?></th><th><?= t('pracovisite') ?></th><th><?= t('nazev_dilu') ?></th><th><?= t('produced_ks') ?></th><th><?= t('nok_ks') ?></th><th><?= t('avg_oee') ?></th><th><?= t('downtime_min') ?></th><th class="no-print"><?= t('actions') ?></th>
+                            <th>ID</th><th><?= t('datum') ?></th><th><?= t('smena') ?></th><th><?= t('group') ?></th><th><?= t('pracovisite') ?></th><th><?= t('nazev_dilu') ?></th><th><?= t('produced_ks') ?></th><th><?= t('nok_total') ?></th><th><?= t('summary_operator_nok') ?></th><th><?= t('avg_oee') ?></th><th><?= t('downtime_min') ?></th><th class="no-print"><?= t('actions') ?></th>
                         </tr></thead>
                         <tbody>
                         <?php if (!$records): ?>
-                            <tr><td colspan="11" class="text-center py-5 text-muted-dvd"><?= t('no_data') ?></td></tr>
+                            <tr><td colspan="12" class="text-center py-5 text-muted-dvd"><?= t('no_data') ?></td></tr>
                         <?php else: foreach ($records as $record):
                             $oee = $record['oee_procent'] !== null ? round((float)$record['oee_procent'] * 100, 1) : null;
                         ?>
-                            <tr data-href="<?= APP_URL ?>/admin/zapis_detail.php?id=<?= (int)$record['id'] ?>">
+                            <tr data-href="<?= APP_URL ?>/admin/zapis_detail.php?id=<?= (int)$record['id'] ?>" class="align-middle">
                                 <td class="mono text-accent">#<?= (int)$record['id'] ?></td>
                                 <td class="mono"><?= date('d.m.Y', strtotime((string)$record['datum'])) ?></td>
                                 <td class="mono"><?= h($record['smena']) ?></td>
                                 <td class="mono text-center"><?= h($record['skupina'] ?: '—') ?></td>
-                                <td><?= h($record['kod_pracovisite'] ?? '') ?><br><small class="text-muted-dvd"><?= h($record['nazev_pracovisite'] ?? '') ?></small></td>
+                                <td><div style="word-break:break-word;min-width:120px;"><?= h(($record['kod_pracovisite'] ?? '') !== '' ? $record['kod_pracovisite'] : '—') ?><br><small class="text-muted-dvd"><?= h(($record['nazev_pracovisite'] ?? '') !== '' ? $record['nazev_pracovisite'] : ' ') ?></small></div></td>
                                 <td><?= h($record['nazev_dilu'] ?? '') ?></td>
                                 <td class="mono text-accent"><?= number_format((int)$record['vyrobeno_ks']) ?></td>
                                 <td class="mono <?= (int)$record['nok_ks'] > 0 ? 'text-accent2' : '' ?>"><?= number_format((int)$record['nok_ks']) ?></td>
+                                <td class="mono <?= (int)$record['nok_operator_ks'] > 0 ? 'text-accent2' : '' ?>"><?= number_format((int)$record['nok_operator_ks']) ?></td>
                                 <td class="mono"><?= $oee !== null ? $oee . '%' : '—' ?></td>
                                 <td class="mono"><?= number_format((int)$record['prostoj_celkem_min']) ?> <?= t('unit_minutes') ?></td>
                                 <td class="no-print"><a href="<?= APP_URL ?>/admin/zapis_detail.php?id=<?= (int)$record['id'] ?>" class="btn-icon" title="<?= t('detail') ?>"><i class="bi bi-eye"></i></a></td>

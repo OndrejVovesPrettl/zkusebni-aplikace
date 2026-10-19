@@ -45,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Validace nového hesla
         if (empty($newPassword)) {
             $errors[] = t('password_required');
-        } elseif (strlen($newPassword) < 12) {
-            $errors[] = t('min_password');
+        } elseif (strlen($newPassword) < (isFskPrintRole() ? 6 : 12)) {
+            $errors[] = isFskPrintRole() ? t('min_password_traceability') : t('min_password');
         }
         if ($newPassword !== $newPasswordConfirm) {
             $errors[] = t('passwords_dont_match');
@@ -180,7 +180,7 @@ require APP_ROOT . '/includes/layout.php';
                             title="<?= t('password') ?>"
                         ><i class="bi bi-eye"></i></button>
                     </div>
-                    <small style="color:var(--muted);">​<?= t('min_char') ?> 12 <?= t('characters') ?></small>
+                    <small style="color:var(--muted);">​<?= t('min_char') ?> <?= isFskPrintRole() ? 6 : 12 ?> <?= t('characters') ?></small>
                 </div>
 
                 <div class="col-12">

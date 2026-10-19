@@ -193,6 +193,15 @@ foreach ($dataRows as $row) {
 }
 
 $preparedRows = array_values($seen);
+$existingOperatorDefaults = [];
+foreach (db_all('SELECT afo, nok_kod_id, operator_excluded_default FROM nok_matrix_afo') as $row) {
+    $existingOperatorDefaults[(string)$row['afo'] . '|' . (int)$row['nok_kod_id']] = (int)$row['operator_excluded_default'];
+}
+foreach ($preparedRows as &$preparedRow) {
+    $key = $preparedRow['afo'] . '|' . (int)$preparedRow['nok_kod_id'];
+    $preparedRow['operator_excluded_default'] = $existingOperatorDefaults[$key] ?? 0;
+}
+unset($preparedRow);
 
 $result = [
     'source' => class_exists('ZipArchive') ? $xlsxPath : ($xlsxExtractDir . '/xl/worksheets/sheet1.xml'),
@@ -220,12 +229,12 @@ try {
     }
 
     $ins = $pdo->prepare(
-        'INSERT INTO nok_matrix_afo (afo, nok_kod_id, zobrazit) VALUES (?, ?, ?) '
-        . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), updated_at=NOW()'
+        'INSERT INTO nok_matrix_afo (afo, nok_kod_id, zobrazit, operator_excluded_default) VALUES (?, ?, ?, ?) '
+        . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), operator_excluded_default=VALUES(operator_excluded_default), updated_at=NOW()'
     );
 
     foreach ($preparedRows as $r) {
-        $ins->execute([$r['afo'], $r['nok_kod_id'], $r['zobrazit']]);
+        $ins->execute([$r['afo'], $r['nok_kod_id'], $r['zobrazit'], $r['operator_excluded_default']]);
         $result['inserted']++;
     }
 

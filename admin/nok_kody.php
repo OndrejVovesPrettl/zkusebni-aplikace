@@ -10,6 +10,54 @@ ensureNokKodyMatrixSchema();
 
 $msg = null;
 
+$isSaveMatrixPost = $_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix';
+$filterActive = (string)($isSaveMatrixPost ? post('filter_active', 'active') : get('filter_active', 'active'));
+$filterActive = in_array($filterActive, ['active', 'all', 'inactive'], true) ? $filterActive : 'active';
+$requestedAfoValues = $isSaveMatrixPost ? post('afo', []) : get('afo', []);
+$requestedAfoValues = is_array($requestedAfoValues) ? $requestedAfoValues : [$requestedAfoValues];
+
+$afoRows = db_all('SELECT CAST(cislo_id AS CHAR) AS afo, kod_pracovisite, nazev_pracovisite, nazev_dilu, aktivni
+                   FROM pracovisite
+                   WHERE aktivni = 1 AND cislo_id IS NOT NULL AND cislo_id > 0
+                   ORDER BY CAST(cislo_id AS UNSIGNED), cislo_id');
+$allAfoList = [];
+$afoWorkplaceMeta = [];
+foreach ($afoRows as $r) {
+    $afoStr = (string)$r['afo'];
+    $allAfoList[] = $afoStr;
+    $afoWorkplaceMeta[$afoStr] = [
+        'kod' => (string)($r['kod_pracovisite'] ?? ''),
+        'nazev' => (string)($r['nazev_pracovisite'] ?? ''),
+        'dil' => (string)($r['nazev_dilu'] ?? ''),
+        'aktivni' => (int)($r['aktivni'] ?? 0) === 1,
+    ];
+}
+
+$requestedAfoList = [];
+foreach ($requestedAfoValues as $requestedAfoValue) {
+    if (!is_scalar($requestedAfoValue)) {
+        continue;
+    }
+    $requestedAfoValue = trim((string)$requestedAfoValue);
+    if ($requestedAfoValue !== '') {
+        $requestedAfoList[] = $requestedAfoValue;
+    }
+}
+$requestedAfoList = array_values(array_unique($requestedAfoList));
+$invalidAfoSelection = array_diff($requestedAfoList, $allAfoList) !== [];
+$selectedAfoList = array_values(array_intersect($allAfoList, array_slice($requestedAfoList, 0, 5)));
+$selectedAfoLabels = array_map(static function (string $afo) use ($afoWorkplaceMeta): string {
+    $meta = $afoWorkplaceMeta[$afo] ?? [];
+    return '#' . $afo . ' · ' . (string)($meta['kod'] ?? '') . ' · ' . (string)($meta['nazev'] ?? '');
+}, $selectedAfoList);
+$afoList = $selectedAfoList;
+$afoKeys = $afoList;
+
+if ($isSaveMatrixPost && ($selectedAfoList === [] || count($requestedAfoList) > 5 || $invalidAfoSelection)) {
+    http_response_code(400);
+    die('Vyberte jedno až pět platných pracovišť.');
+}
+
 // 1. ULOŽENÍ MATICE A TEXTŮ
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
     if (!verifyCsrfToken(post('_csrf'))) {
@@ -19,28 +67,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
 
     $matrixJson = post('matrix_json');
     $textsJson = post('texts_json');
+    $operatorDefaultsJson = post('operator_defaults_json');
 
     $posted = is_string($matrixJson) ? (json_decode($matrixJson, true) ?: []) : [];
     $postedTexts = is_string($textsJson) ? (json_decode($textsJson, true) ?: []) : [];
+    $postedOperatorDefaults = is_string($operatorDefaultsJson) ? (json_decode($operatorDefaultsJson, true) ?: []) : [];
 
-    $afoList = db_all('SELECT CAST(cislo_id AS CHAR) AS afo FROM pracovisite WHERE aktivni = 1 AND cislo_id IS NOT NULL AND cislo_id > 0 ORDER BY CAST(cislo_id AS UNSIGNED), cislo_id');
-    $afoKeys = array_map(static fn(array $r): string => trim((string)$r['afo']), $afoList);
-
-    $filterActive = get('filter_active', 'active');
-    $nokRows = db_all('SELECT id, kod, popis, aktivni FROM nok_kody WHERE aktivni=1 ORDER BY id');
+    $whereSaveActive = match ($filterActive) {
+        'all' => '',
+        'inactive' => 'WHERE aktivni = 0',
+        default => 'WHERE aktivni = 1',
+    };
+    $nokRows = db_all("SELECT id, kod, popis, aktivni FROM nok_kody $whereSaveActive ORDER BY id");
 
     $pdo = db();
     $pdo->beginTransaction();
     try {
         $ins = $pdo->prepare(
-            'INSERT INTO nok_matrix_afo (afo, nok_kod_id, kod, popis, zobrazit) VALUES (?, ?, ?, ?, ?) '
-            . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), kod=VALUES(kod), popis=VALUES(popis), updated_at=NOW()'
+            'INSERT INTO nok_matrix_afo (afo, nok_kod_id, kod, popis, zobrazit, operator_excluded_default) VALUES (?, ?, ?, ?, ?, ?) '
+            . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), operator_excluded_default=VALUES(operator_excluded_default), kod=VALUES(kod), popis=VALUES(popis), updated_at=NOW()'
         );
         $updText = $pdo->prepare('UPDATE nok_kody SET popis=? WHERE id=?');
+        $updOperatorDefault = $pdo->prepare('UPDATE nok_matrix_afo SET operator_excluded_default=? WHERE nok_kod_id=? AND afo=?');
         $updTr = $pdo->prepare(
             'INSERT INTO translations (lang_code, `key`, `value`) VALUES (?, ?, ?) '
             . 'ON DUPLICATE KEY UPDATE `value`=VALUES(`value`), updated_at=NOW()'
         );
+
+        foreach ($postedOperatorDefaults as $nokId => $afoDefaults) {
+            if (!ctype_digit((string)$nokId) || (int)$nokId <= 0 || !is_array($afoDefaults)) {
+                continue;
+            }
+            foreach ($afoDefaults as $afo => $excluded) {
+                if (!in_array(trim((string)$afo), $afoKeys, true)) {
+                    continue;
+                }
+                $updOperatorDefault->execute([(int)$excluded === 1 ? 1 : 0, (int)$nokId, (string)$afo]);
+            }
+        }
 
         foreach ($nokRows as $nok) {
             $nokId = (int)$nok['id'];
@@ -52,7 +116,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
             }
             
             $updText->execute([$newText, $nokId]);
-
             $key1 = 'nok_' . str_pad((string)$nokKod, 3, '0', STR_PAD_LEFT) . '_popis';
             $key2 = 'nok_' . (string)$nokKod . '_popis';
             $key3 = 'nok_' . str_pad((string)$nokId, 3, '0', STR_PAD_LEFT) . '_popis';
@@ -68,12 +131,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'save_matrix') {
                 if (isset($posted[(string)$nokId]) && is_array($posted[(string)$nokId]) && !empty($posted[(string)$nokId][$afo])) {
                     $val = 1;
                 }
-                $ins->execute([$afo, $nokId, $nokKod, $newText, $val]);
+                $operatorExcludedDefault = (int)($postedOperatorDefaults[(string)$nokId][$afo] ?? 0) === 1 ? 1 : 0;
+                $ins->execute([$afo, $nokId, $nokKod, $newText, $val, $operatorExcludedDefault]);
             }
         }
 
         $pdo->commit();
-        redirect(APP_URL . '/admin/nok_kody.php?ok=1&filter_active=' . urlencode($filterActive));
+        redirect(APP_URL . '/admin/nok_kody.php?' . http_build_query([
+            'ok' => 1,
+            'filter_active' => $filterActive,
+            'afo' => $selectedAfoList,
+        ]));
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
@@ -98,6 +166,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'add_nok_kod') {
             $stmt = db()->prepare('INSERT INTO nok_kody (kod, popis, skupina, aktivni, zobrazit_default) VALUES (?, ?, "ostatni", 1, 1)');
             $stmt->execute([$nextKod, $popis]);
             $newId = (int)db()->lastInsertId();
+
+            $activeAfoRows = db_all('SELECT CAST(cislo_id AS CHAR) AS afo FROM pracovisite WHERE aktivni=1 AND cislo_id IS NOT NULL AND cislo_id>0');
+            $matrixInsert = db()->prepare('INSERT INTO nok_matrix_afo (afo,nok_kod_id,kod,popis,zobrazit,operator_excluded_default) VALUES (?,?,?,?,1,0)');
+            foreach ($activeAfoRows as $afoRow) {
+                $matrixInsert->execute([(string)$afoRow['afo'], $newId, $nextKod, $popis]);
+            }
             
             $key1 = 'nok_' . str_pad((string)$nextKod, 3, '0', STR_PAD_LEFT) . '_popis';
             $key2 = 'nok_' . (string)$nextKod . '_popis';
@@ -110,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'add_nok_kod') {
                 $updTr->execute([$langCode, $key3, $popis]);
             }
 
-            redirect(APP_URL . '/admin/nok_kody.php?ok=1');
+            redirect(APP_URL . '/admin/nok_kody.php?' . http_build_query(['ok' => 1, 'afo' => $selectedAfoList]));
         } catch (Throwable $e) {
             $msg = 'Chyba při přidávání chyby: ' . $e->getMessage();
         }
@@ -127,7 +201,11 @@ if (get('action') === 'toggle_nok_aktivni' && get('id')) {
     }
     try {
         db()->prepare('UPDATE nok_kody SET aktivni = 1 - aktivni WHERE id=?')->execute([(int)get('id')]);
-        redirect(APP_URL . '/admin/nok_kody.php?ok=1&filter_active=' . urlencode((string)get('filter_active', 'active')));
+        redirect(APP_URL . '/admin/nok_kody.php?' . http_build_query([
+            'ok' => 1,
+            'filter_active' => $filterActive,
+            'afo' => $selectedAfoList,
+        ]));
     } catch (Throwable $e) {
         $msg = 'Chyba při změně stavu: ' . $e->getMessage();
     }
@@ -146,7 +224,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'rebuild_from_ex
     exec($cmd . ' 2>&1', $output, $exitCode);
 
     if ($exitCode === 0) {
-        redirect(APP_URL . '/admin/nok_kody.php?ok=1&rebuilt=1');
+        redirect(APP_URL . '/admin/nok_kody.php?' . http_build_query(['ok' => 1, 'rebuilt' => 1, 'afo' => $selectedAfoList]));
     }
 
     $msg = "Rebuild import selhal (exit {$exitCode}):\n" . implode("\n", $output);
@@ -155,7 +233,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'rebuild_from_ex
 $lang = $_SESSION['lang'] ?? 'cs';
 
 // Zpracování filtru aktivních / skrytých
-$filterActive = get('filter_active', 'active');
 $whereActive = match ($filterActive) {
     'all' => '',
     'inactive' => 'WHERE n.aktivni = 0',
@@ -163,8 +240,8 @@ $whereActive = match ($filterActive) {
 };
 
 // Načtení dat chyb
-$nokRows = db_all(
-    "SELECT n.id,
+$nokRows = $selectedAfoList !== [] ? db_all(
+        "SELECT n.id,
             n.kod,
             n.aktivni,
             COALESCE(
@@ -175,35 +252,20 @@ $nokRows = db_all(
      $whereActive
      ORDER BY n.id",
     [$lang]
-);
-
-// Načtení aktivních pracovišť (sloupců)
-$afoRows = db_all('SELECT CAST(cislo_id AS CHAR) AS afo, kod_pracovisite, nazev_pracovisite, nazev_dilu, aktivni 
-                   FROM pracovisite 
-                   WHERE aktivni = 1 AND cislo_id IS NOT NULL AND cislo_id > 0 
-                   ORDER BY CAST(cislo_id AS UNSIGNED), cislo_id');
-
-$afoList = [];
-$afoWorkplaceMeta = [];
-foreach ($afoRows as $r) {
-    $afoStr = (string)$r['afo'];
-    $afoList[] = $afoStr;
-    $afoWorkplaceMeta[$afoStr] = [
-        'kod' => (string)($r['kod_pracovisite'] ?? ''),
-        'nazev' => (string)($r['nazev_pracovisite'] ?? ''),
-        'dil' => (string)($r['nazev_dilu'] ?? ''),
-        'aktivni' => (int)($r['aktivni'] ?? 0) === 1,
-    ];
-}
+) : [];
 
 // Načtení stávajících vazeb z matice
 $matrixMap = [];
 if ($afoList !== [] && $nokRows !== []) {
-    $vals = db_all('SELECT afo, nok_kod_id, zobrazit FROM nok_matrix_afo');
+    $placeholders = implode(',', array_fill(0, count($afoList), '?'));
+    $vals = db_all("SELECT afo, nok_kod_id, zobrazit, operator_excluded_default FROM nok_matrix_afo WHERE afo IN ($placeholders)", $afoList);
     foreach ($vals as $v) {
         $afo = (string)$v['afo'];
         $id = (int)$v['nok_kod_id'];
-        $matrixMap[$id][$afo] = (int)$v['zobrazit'];
+        $matrixMap[$id][$afo] = [
+            'visible' => (int)$v['zobrazit'],
+            'operatorExcludedDefault' => (int)$v['operator_excluded_default'],
+        ];
     }
 }
 
@@ -228,9 +290,10 @@ require APP_ROOT . '/includes/layout.php';
         
         <!-- Akční tlačítka vlevo (Rebuild a Add form jsou striktně odděleny) -->
         <div class="d-flex gap-2 align-items-center">
-            <form method="post" style="margin:0;">
+            <form method="post" style="margin:0;display:none;">
                 <input type="hidden" name="action" value="rebuild_from_excel">
                 <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+                <?php foreach ($selectedAfoList as $afo): ?><input type="hidden" name="afo[]" value="<?= h($afo) ?>"><?php endforeach; ?>
                 <button type="submit" class="btn-dvd btn-dvd-sm" onclick="return confirm('Prestavet NOK ciselnik i matici podle uploads/NOKy.xlsx?')">
                     <i class="bi bi-arrow-repeat me-1"></i>Přestavět z Excelu
                 </button>
@@ -240,38 +303,82 @@ require APP_ROOT . '/includes/layout.php';
             </button>
         </div>
 
-        <!-- Filtry a hledání vpravo -->
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <?php if ($selectedAfoList !== []): ?>
+                <span style="font-size:.82rem;color:var(--muted)">Pracoviště <strong style="color:var(--text)"><?= h(implode(' | ', $selectedAfoLabels)) ?></strong></span>
+            <?php else: ?>
+                <span style="font-size:.82rem;color:var(--muted)">Pro zobrazení matice vyberte pracoviště.</span>
+            <?php endif; ?>
+            <button type="button" class="btn-outline" onclick="openWorkplaceModal()" style="padding:.35rem .7rem;font-size:.78rem">
+                <i class="bi bi-building me-1"></i><?= $selectedAfoList !== [] ? 'Změnit pracoviště' : 'Vybrat pracoviště' ?>
+            </button>
+        </div>
         <div class="d-flex gap-2">
             <form method="get" style="margin:0">
+                    <?php foreach ($selectedAfoList as $afo): ?><input type="hidden" name="afo[]" value="<?= h($afo) ?>"><?php endforeach; ?>
                 <select name="filter_active" class="form-select form-select-sm" onchange="this.form.submit()" style="width:170px;font-size:.78rem">
                     <option value="active" <?= $filterActive === 'active' ? 'selected' : '' ?>>Stav: Pouze aktivní</option>
                     <option value="all" <?= $filterActive === 'all' ? 'selected' : '' ?>>Stav: Všechny chyby</option>
                     <option value="inactive" <?= $filterActive === 'inactive' ? 'selected' : '' ?>>Stav: Pouze skryté</option>
                 </select>
             </form>
-            <input type="text" id="search-afo" class="form-control form-control-sm" placeholder="Hledat proces (AFO)..." oninput="filterMatrix()" style="width:180px;font-size:.78rem">
             <input type="text" id="search-nok" class="form-control form-control-sm" placeholder="Hledat chybu..." oninput="filterMatrix()" style="width:180px;font-size:.78rem">
         </div>
 
     </div>
 </div>
 
+<div id="afo-select-modal" data-required="<?= $selectedAfoList === [] ? '1' : '0' ?>" style="display:<?= $selectedAfoList === [] ? 'flex' : 'none' ?>;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:1rem">
+    <div role="dialog" aria-modal="true" aria-labelledby="afo-select-title" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;max-width:560px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 25px 50px -12px rgba(0,0,0,.5)">
+        <div style="padding:1rem 1.2rem;border-bottom:1px solid var(--border)">
+            <h2 id="afo-select-title" style="margin:0;font-size:1.05rem;color:var(--text)">Vyberte pracoviště</h2>
+            <p style="margin:.35rem 0 0;font-size:.82rem;color:var(--muted)">Vyberte až pět pracovišť. Načtou se pouze jejich matice.</p>
+        </div>
+        <form method="get" style="padding:1rem 1.2rem">
+            <input type="hidden" name="filter_active" value="<?= h($filterActive) ?>">
+            <label for="afo-select-search" class="form-label-dvd">Hledat pracoviště</label>
+            <input type="search" id="afo-select-search" class="form-control mb-2" placeholder="Číslo AFO, kód nebo název" oninput="filterAfoOptions()" autocomplete="off">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="form-label-dvd mb-0">Pracoviště</span>
+                <span id="afo-selection-count" style="font-size:.78rem;color:var(--muted)"><?= count($selectedAfoList) ?> / 5 vybráno</span>
+            </div>
+            <div id="afo-select-list" style="height:48vh;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:.35rem">
+                <?php foreach ($allAfoList as $afo): $meta = $afoWorkplaceMeta[$afo]; ?>
+                    <?php $optionLabel = trim('#' . $afo . ' · ' . $meta['kod'] . ' · ' . $meta['nazev'] . ($meta['dil'] !== '' ? ' · ' . $meta['dil'] : '')); ?>
+                    <label class="afo-option d-flex align-items-center gap-2 p-2" data-search="<?= h(mb_strtolower($optionLabel, 'UTF-8')) ?>" style="border-radius:5px;cursor:pointer;font-size:.85rem">
+                        <input type="checkbox" name="afo[]" value="<?= h($afo) ?>" onchange="updateAfoSelectionLimit(this)" <?= in_array($afo, $selectedAfoList, true) ? 'checked' : '' ?>>
+                        <span><?= h($optionLabel) ?></span>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+            <div class="d-flex justify-content-end gap-2 mt-3">
+                <?php if ($selectedAfoList !== []): ?><button type="button" class="btn-outline" onclick="closeWorkplaceModal()">Zrušit</button><?php endif; ?>
+                <button id="afo-load-button" type="submit" class="btn-dvd btn-dvd-sm" <?= $selectedAfoList === [] ? 'disabled' : '' ?>><i class="bi bi-check2 me-1"></i>Načíst matici</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- ========================================================================= -->
 <!-- HLAVNÍ FORMULÁŘ MATICE -->
 <!-- ========================================================================= -->
+<?php if ($selectedAfoList !== []): ?>
 <form method="post" id="matrix-form" onsubmit="return serializeMatrixBeforeSubmit()">
 <input type="hidden" name="action" value="save_matrix">
 <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
 <input type="hidden" name="matrix_json" id="matrix_json" value="">
 <input type="hidden" name="texts_json" id="texts_json" value="">
+<input type="hidden" name="operator_defaults_json" id="operator_defaults_json" value="">
+<?php foreach ($selectedAfoList as $afo): ?><input type="hidden" name="afo[]" value="<?= h($afo) ?>"><?php endforeach; ?>
+<input type="hidden" name="filter_active" value="<?= h($filterActive) ?>">
 
 <div class="tbl-wrap">
 <div class="overflow-x" style="max-height:70vh;overflow:auto;border:1px solid var(--border);border-radius:10px;">
-<table class="tbl" id="matrix-table" style="min-width:1300px;border-collapse:separate;border-spacing:0;">
+<table class="tbl" id="matrix-table" style="width:100%;min-width:<?= 276 + count($afoList) * 170 ?>px;table-layout:auto;border-collapse:separate;border-spacing:0;">
     <thead>
         <tr>
-            <th style="position:sticky;left:0;z-index:5;background:var(--surface2);color:var(--text);min-width:90px;border-bottom:1px solid var(--border)">ID chyby</th>
-            <th style="position:sticky;left:90px;z-index:5;background:var(--surface2);color:var(--text);min-width:320px;border-bottom:1px solid var(--border)">Chyba</th>
+            <th style="position:sticky;left:0;z-index:5;background:var(--surface2);color:var(--text);width:56px;min-width:56px;border-bottom:1px solid var(--border)">ID</th>
+            <th style="position:sticky;left:56px;z-index:5;background:var(--surface2);color:var(--text);width:max-content;min-width:220px;max-width:360px;border-bottom:1px solid var(--border)">Chyba</th>
             <?php foreach($afoList as $afo):
                 $meta = $afoWorkplaceMeta[$afo] ?? null;
                 $headerMain = '#' . $afo;
@@ -289,7 +396,7 @@ require APP_ROOT . '/includes/layout.php';
                     $title = implode(' | ', $parts);
                 }
             ?>
-            <th class="afo-col" data-afo-search="<?= mb_strtolower($title, 'UTF-8') ?>" style="min-width:94px;text-align:center;line-height:1.2;background:var(--surface2);color:var(--text);border-bottom:1px solid var(--border)" title="<?= h($title) ?>">
+            <th class="afo-col" data-afo-search="<?= mb_strtolower($title, 'UTF-8') ?>" style="min-width:150px;text-align:center;line-height:1.2;background:var(--surface2);color:var(--text);border-bottom:1px solid var(--border)" title="<?= h($title) ?>">
                 <div style="font-family:var(--mono);font-size:.72rem;"> <?= h($headerMain) ?> </div>
                 <?php if ($headerSub !== ''): ?>
                 <div style="font-size:.62rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:84px;margin:0 auto;"> <?= h($headerSub) ?> </div>
@@ -305,24 +412,24 @@ require APP_ROOT . '/includes/layout.php';
         ?>
         <tr class="nok-row <?= $isInactive ? 'opacity-50' : '' ?>" data-nok-search="<?= mb_strtolower($id . ' ' . $row['popis'], 'UTF-8') ?>">
             <td style="position:sticky;left:0;z-index:4;background:var(--surface2);color:var(--text);font-family:var(--mono);border-bottom:1px solid var(--border)"><?= $id ?></td>
-            <td style="position:sticky;left:90px;z-index:4;background:var(--surface2);color:var(--text);white-space:normal;border-bottom:1px solid var(--border)">
+            <td style="position:sticky;left:56px;z-index:4;background:var(--surface2);color:var(--text);white-space:normal;width:max-content;min-width:220px;max-width:360px;border-bottom:1px solid var(--border)">
                 <input type="hidden" class="nok-text-hidden" data-id="<?= $id ?>" id="nok_text_<?= $id ?>" value="<?= h($row['popis']) ?>">
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;min-width:280px;">
-                    <div id="nok_text_preview_<?= $id ?>" style="font-size:.82rem;line-height:1.35;white-space:normal;flex:1 1 auto;color:var(--text)"><?= h($row['popis']) ?></div>
+                <div style="display:flex;align-items:center;gap:.5rem;min-width:0;">
+                    <div id="nok_text_preview_<?= $id ?>" style="font-size:.82rem;line-height:1.35;white-space:normal;overflow-wrap:anywhere;flex:1 1 auto;min-width:0;color:var(--text)"><?= h($row['popis']) ?></div>
                     <div style="display:flex;align-items:center;gap:.3rem;flex:0 0 auto;">
                         <button type="button" class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;" onclick="openNokTextModal(<?= $id ?>)" title="Upravit text chyby">
                             <i class="bi bi-pencil"></i>
                         </button>
                         
                         <?php if (!$isInactive): ?>
-                            <a href="?action=toggle_nok_aktivni&id=<?= $id ?>&filter_active=<?= urlencode($filterActive) ?>&_csrf=<?= h(generateCsrfToken()) ?>" 
+                            <a href="?action=toggle_nok_aktivni&id=<?= $id ?>&filter_active=<?= urlencode($filterActive) ?><?= h(implode('', array_map(static fn(string $afo): string => '&afo%5B%5D=' . rawurlencode($afo), $selectedAfoList))) ?>&_csrf=<?= h(generateCsrfToken()) ?>"
                                class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;color:var(--warn);" 
                                onclick="return confirm('Opravdu chcete tuto chybu deaktivovat a skrýt?')" 
                                title="Skrýt / Deaktivovat chybu">
                                 <i class="bi bi-eye-slash"></i>
                             </a>
                         <?php else: ?>
-                            <a href="?action=toggle_nok_aktivni&id=<?= $id ?>&filter_active=<?= urlencode($filterActive) ?>&_csrf=<?= h(generateCsrfToken()) ?>" 
+                            <a href="?action=toggle_nok_aktivni&id=<?= $id ?>&filter_active=<?= urlencode($filterActive) ?><?= h(implode('', array_map(static fn(string $afo): string => '&afo%5B%5D=' . rawurlencode($afo), $selectedAfoList))) ?>&_csrf=<?= h(generateCsrfToken()) ?>"
                                class="btn-outline" style="padding:.28rem .5rem;font-size:.72rem;color:var(--accent);" 
                                onclick="return confirm('Opravdu chcete tuto chybu znovu aktivovat?')" 
                                title="Znovu aktivovat / Odkrýt chybu">
@@ -333,10 +440,17 @@ require APP_ROOT . '/includes/layout.php';
                 </div>
             </td>
             <?php foreach($afoList as $afo):
-                $v = (int)($matrixMap[$id][$afo] ?? 0);
+                $matrixState = $matrixMap[$id][$afo] ?? [];
+                $visible = (int)($matrixState['visible'] ?? 0) === 1;
+                $operatorExcludedDefault = (int)($matrixState['operatorExcludedDefault'] ?? 0) === 1;
             ?>
-            <td class="afo-col-cell" style="text-align:center;border-bottom:1px solid var(--border)">
-                <input type="checkbox" value="1" class="matrix-cb" data-nok="<?= $id ?>" data-afo="<?= h($afo) ?>" <?= $v===1?'checked':'' ?>>
+            <td class="afo-col-cell" style="text-align:left;border-bottom:1px solid var(--border);white-space:nowrap">
+                <label class="d-flex align-items-center justify-content-between gap-1" style="font-size:.65rem;color:var(--muted);cursor:pointer" title="Zobrazit NOK na tomto pracovišti">
+                    <?= h(t('nok_show_on_workplace')) ?> <input type="checkbox" value="1" class="matrix-cb" data-nok="<?= $id ?>" data-afo="<?= h($afo) ?>" <?= $visible ? 'checked' : '' ?>>
+                </label>
+                <label class="d-flex align-items-center justify-content-between gap-1 mt-1" style="font-size:.65rem;color:var(--muted);cursor:pointer" title="Vyloučit NOK z operátorského scrapu na tomto pracovišti">
+                    <?= h(t('nok_operator_excluded_default')) ?> <input type="checkbox" class="operator-default-cb" data-nok="<?= $id ?>" data-afo="<?= h($afo) ?>" <?= $operatorExcludedDefault ? 'checked' : '' ?>>
+                </label>
             </td>
             <?php endforeach; ?>
         </tr>
@@ -345,11 +459,12 @@ require APP_ROOT . '/includes/layout.php';
 </table>
 </div>
 <div class="tbl-footer d-flex justify-content-between align-items-center">
-    <span><?= count($nokRows) ?> zobrazených chyb</span>
+    <span><?= count($nokRows) ?> chyb · <?= count($selectedAfoList) ?> pracovišť</span>
     <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-save me-1"></i>Uložit změny v matici</button>
 </div>
 </div>
 </form>
+<?php endif; ?>
 
 <!-- ========================================================================= -->
 <!-- MODAL PRO ÚPRAVU TEXTU CHYBY (Není obalen formem) -->
@@ -379,6 +494,7 @@ require APP_ROOT . '/includes/layout.php';
         <form method="post">
             <input type="hidden" name="action" value="add_nok_kod">
             <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+            <?php foreach ($selectedAfoList as $afo): ?><input type="hidden" name="afo[]" value="<?= h($afo) ?>"><?php endforeach; ?>
             
             <div style="padding:1.1rem 1.3rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
                 <h5 style="margin:0;font-size:1rem;font-weight:600;color:var(--text);"><i class="bi bi-plus-circle me-2" style="color:var(--accent)"></i>Přidat novou chybu</h5>
@@ -400,6 +516,52 @@ require APP_ROOT . '/includes/layout.php';
 
 <script>
 let activeNokTextId = null;
+
+function filterAfoOptions() {
+    const query = (document.getElementById('afo-select-search')?.value || '').toLocaleLowerCase('cs-CZ').trim();
+    document.querySelectorAll('.afo-option').forEach(option => {
+        const visible = query === '' || (option.dataset.search || '').includes(query);
+        option.style.setProperty('display', visible ? 'flex' : 'none', 'important');
+    });
+}
+
+function updateAfoSelectionLimit(changedCheckbox) {
+    const checkboxes = [...document.querySelectorAll('#afo-select-list input[type="checkbox"]')];
+    let selectedCount = checkboxes.filter(checkbox => checkbox.checked).length;
+    if (changedCheckbox.checked && selectedCount > 5) {
+        changedCheckbox.checked = false;
+        selectedCount--;
+    }
+    const countLabel = document.getElementById('afo-selection-count');
+    const submitButton = document.getElementById('afo-load-button');
+    if (countLabel) countLabel.textContent = selectedCount + ' / 5 vybráno';
+    if (submitButton) submitButton.disabled = selectedCount === 0;
+    checkboxes.forEach(checkbox => {
+        checkbox.disabled = !checkbox.checked && selectedCount >= 5;
+    });
+}
+
+function openWorkplaceModal() {
+    const modal = document.getElementById('afo-select-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    const search = document.getElementById('afo-select-search');
+    if (search) {
+        search.value = '';
+        filterAfoOptions();
+        updateAfoSelectionLimit({ checked: false });
+        search.focus();
+    }
+}
+
+function closeWorkplaceModal() {
+    const modal = document.getElementById('afo-select-modal');
+    if (modal && modal.dataset.required !== '1') modal.style.display = 'none';
+}
+
+if (document.getElementById('afo-select-modal')?.dataset.required === '1') {
+    document.getElementById('afo-select-search')?.focus();
+}
 
 // Modal pro novou chybu
 function openAddNokModal() {
@@ -435,10 +597,20 @@ function applyNokTextModal() {
 function serializeMatrixBeforeSubmit() {
     const matrix = {};
     const texts = {};
+    const operatorDefaults = {};
 
     document.querySelectorAll('.nok-text-hidden').forEach(el => {
         const id = el.getAttribute('data-id');
         if (id) texts[id] = el.value || '';
+    });
+
+    document.querySelectorAll('.operator-default-cb').forEach(el => {
+        const id = el.getAttribute('data-nok');
+        const afo = el.getAttribute('data-afo');
+        if (id && afo) {
+            if (!operatorDefaults[id]) operatorDefaults[id] = {};
+            operatorDefaults[id][afo] = el.checked ? 1 : 0;
+        }
     });
 
     document.querySelectorAll('.matrix-cb:checked').forEach(cb => {
@@ -452,12 +624,12 @@ function serializeMatrixBeforeSubmit() {
 
     document.getElementById('matrix_json').value = JSON.stringify(matrix);
     document.getElementById('texts_json').value = JSON.stringify(texts);
+    document.getElementById('operator_defaults_json').value = JSON.stringify(operatorDefaults);
     return true;
 }
 
 // Hledání v matici
 function filterMatrix() {
-    const qAfo = (document.getElementById('search-afo')?.value || '').toLowerCase().trim();
     const qNok = (document.getElementById('search-nok')?.value || '').toLowerCase().trim();
 
     document.querySelectorAll('.nok-row').forEach(tr => {
@@ -465,15 +637,6 @@ function filterMatrix() {
         tr.style.display = (!qNok || searchStr.includes(qNok)) ? '' : 'none';
     });
 
-    document.querySelectorAll('.afo-col').forEach((th, index) => {
-        const searchStr = th.getAttribute('data-afo-search') || '';
-        const visible = !qAfo || searchStr.includes(qAfo);
-        th.style.display = visible ? '' : 'none';
-
-        document.querySelectorAll(`.nok-row td.afo-col-cell:nth-child(${index + 3})`).forEach(td => {
-            td.style.display = visible ? '' : 'none';
-        });
-    });
 }
 </script>
 <?php require APP_ROOT . '/includes/layout_end.php'; ?>

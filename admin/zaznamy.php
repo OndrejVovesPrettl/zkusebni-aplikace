@@ -1,9 +1,38 @@
 <?php
+
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 // admin/zaznamy.php – Záznamový list se všemi filtry
 require_once dirname(__DIR__) . '/includes/config.php';
 requireAnyRole(['superadmin', 'admin', 'read', 'writer']);
 $pageTitle  = t('records_title');
 $activePage = 'zaznamy';
+
+if (isset($_GET['clear_filters'])) {
+    unset($_SESSION['zaznamy_saved_filters']);
+    redirect(APP_URL . '/admin/zaznamy.php');
+}
+
+$referer = $_SERVER['HTTP_REFERER'] ?? '';
+$isReturningFromAction = preg_match('/(zapis_edit\.php|zapis_delete\.php|zapis_detail\.php|zaznamy\.php)/i', $referer);
+if (isset($_GET['od'])) {
+    if (empty($_GET['export']) && empty($_GET['print'])) {
+        $filtersToSave = $_GET;
+        unset($filtersToSave['msg'], $filtersToSave['status'], $filtersToSave['success'], $filtersToSave['error']);
+        $_SESSION['zaznamy_saved_filters'] = $filtersToSave;
+    }
+} elseif (!$isReturningFromAction) {
+    unset($_SESSION['zaznamy_saved_filters']);
+} elseif (!empty($_SESSION['zaznamy_saved_filters'])) {
+    $restore = $_SESSION['zaznamy_saved_filters'];
+    foreach ($_GET as $key => $value) {
+        if ($key !== 'clear_filters') {
+            $restore[$key] = $value;
+        }
+    }
+    redirect(APP_URL . '/admin/zaznamy.php?' . http_build_query($restore));
+}
 
 // ── Filtry ───────────────────────────────────────────────────
 $fOd      = get('od',     date('Y-m-01'));
@@ -60,8 +89,8 @@ $downtimeJoin = "LEFT JOIN (
 ) zp ON zp.zapis_id=z.id";
 
 $sql = "SELECT z.id,z.typ,z.datum,z.cw,z.rok,z.smena,z.skupina,z.jmeno,z.pracovni_pozice,
-               z.vyrobeno_ks,z.nok_ks,z.vyrobeno_dobre_ks,z.k_posouzeni,
-           z.cisty_cas_min,z.oee_procent,COALESCE(zp.dt_total,0) AS prostoj_celkem_min,
+               z.vyrobeno_ks,z.nok_ks,COALESCE(z.nok_operator_ks,z.nok_ks) AS nok_operator_ks,z.vyrobeno_dobre_ks,z.k_posouzeni,
+               z.cisty_cas_min,z.oee_procent,COALESCE(zp.dt_total,0) AS prostoj_celkem_min,
                z.kod_pracovisite,z.nazev_pracovisite,z.nazev_dilu,
                z.zakaznik,z.projekt,z.zapsal
         FROM zapisy z
@@ -93,13 +122,14 @@ $oeeSqlExpr = "LEAST(1.0, GREATEST(0.0,
     *
     -- Kvalita (Q)
     (
-        SUM(GREATEST(0, z.vyrobeno_ks - z.nok_ks))
+        SUM(GREATEST(0, z.vyrobeno_ks - COALESCE(z.nok_operator_ks, z.nok_ks)))
         / NULLIF(SUM(z.vyrobeno_ks), 0)
     )
 )) * 100";
 
 // ── Statistiky ───────────────────────────────────────────────
 $stat = db_row("SELECT COUNT(*) cnt, SUM(z.vyrobeno_ks) vyr, SUM(z.nok_ks) nok,
+    SUM(COALESCE(z.nok_operator_ks, z.nok_ks)) nok_operator,
     ROUND(COALESCE($oeeSqlExpr, 0), 2) AS oee_avg,
     SUM(COALESCE(zp.dt_total,0)) prostoj
     FROM zapisy z
@@ -120,6 +150,23 @@ if ($export) {
 }
 
 $pracovisteList = getPracovisteList();
+$selectedPracovisteName = '';
+if ($fPrac !== '') {
+    foreach ($pracovisteList as $p) {
+        if ((string)$p['id'] === (string)$fPrac) {
+            $selectedPracovisteName = '[' . $p['cislo_id'] . '] ' . $p['nazev_dilu'];
+            break;
+        }
+    }
+}
+
+$typLabels = [
+    'serie' => t('type_serie'),
+    'filtry' => t('type_filtry'),
+    'vstrikovna' => t('type_vstrikovna'),
+];
+$selectedTypLabel = $fTyp !== '' ? ($typLabels[$fTyp] ?? strtoupper($fTyp)) : t('all');
+
 $workerSuggest = db_all("SELECT DISTINCT z.jmeno
                          FROM zapisy z
                          WHERE z.jmeno IS NOT NULL AND z.jmeno <> ''
@@ -137,7 +184,199 @@ $dvdSyncLabel = $dvdSyncAt ? h(date('d.m.Y H:i', strtotime($dvdSyncAt))) : '—'
 
 require APP_ROOT . '/includes/layout.php';
 ?>
-<div class="topbar">
+
+<style>
+.print-only {
+    display: none;
+}
+
+@media print {
+    @page {
+        size: A4 landscape;
+        margin: 7mm 8mm;
+    }
+
+    /* Reset všech nadřazených obalů z layout.php (zruší flexbox/grid a zákaz zalamování, který odsouval tabulku na 2. stranu) */
+    html,
+    body,
+    html body *:has(.tbl),
+    html body .content,
+    html body .tbl-wrap,
+    html body .overflow-x {
+        display: block !important;
+        position: static !important;
+        float: none !important;
+        width: 100% !important;
+        max-width: none !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+        background: #fff !important;
+        color: #000 !important;
+        page-break-before: auto !important;
+        page-break-after: auto !important;
+        page-break-inside: auto !important;
+        break-before: auto !important;
+        break-after: auto !important;
+        break-inside: auto !important;
+    }
+
+    html, body {
+        font-size: 8pt !important;
+        line-height: 1.2 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    /* Skrytí navigace, filtrů, horních kartiček, patičky a grafických proužků OEE */
+    html body .no-print,
+    html body .topbar,
+    html body .sidebar,
+    html body #sidebar,
+    html body nav,
+    html body aside,
+    html body .filter-bar,
+    html body .tbl-footer,
+    html body .oee-bar-wrap {
+        display: none !important;
+    }
+
+    /* Tisková hlavička přímo nad tabulkou na 1. straně */
+    html body .print-only.print-header {
+        display: block !important;
+        border-bottom: 2px solid #000 !important;
+        padding-bottom: 4px !important;
+        margin-bottom: 6px !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+    }
+
+    .print-header-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        border: none !important;
+    }
+
+    .print-header-table td {
+        border: none !important;
+        padding: 0 !important;
+        vertical-align: bottom !important;
+        color: #000 !important;
+        background: transparent !important;
+    }
+
+    .print-header h1 {
+        font-size: 12.5pt !important;
+        font-weight: 700 !important;
+        margin: 0 !important;
+        color: #000 !important;
+    }
+
+    .print-header-meta {
+        font-size: 8pt !important;
+        color: #333 !important;
+        text-align: right !important;
+    }
+
+    /* Kompaktní tabulka přes celou šířku papíru (14 tištěných sloupců) */
+    html body table.tbl {
+        display: table !important;
+        width: 100% !important;
+        border-collapse: collapse !important;
+        table-layout: auto !important;
+        font-size: 7.5pt !important;
+        color: #000 !important;
+        page-break-before: auto !important;
+        page-break-inside: auto !important;
+        break-before: auto !important;
+        break-inside: auto !important;
+    }
+
+    html body .tbl thead {
+        display: table-header-group !important;
+    }
+
+    html body .tbl tbody {
+        display: table-row-group !important;
+        page-break-inside: auto !important;
+        break-inside: auto !important;
+    }
+
+    html body .tbl tr {
+        display: table-row !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+    }
+
+    html body .tbl th,
+    html body .tbl td {
+        display: table-cell !important;
+        border: 1px solid #bbb !important;
+        padding: 2.5px 3.5px !important;
+        color: #000 !important;
+        background: transparent !important;
+        vertical-align: middle !important;
+    }
+
+    /* Sloupec s akcemi zůstane skrytý i po table-cell resetu */
+    html body .tbl th.no-print,
+    html body .tbl td.no-print {
+        display: none !important;
+    }
+
+    html body .tbl thead th {
+        background-color: #eaeaea !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        white-space: normal !important;
+        line-height: 1.1 !important;
+        font-size: 7pt !important;
+    }
+
+    /* Podřádky (název pracoviště, zákazník/projekt) v buňkách */
+    html body .tbl td small.text-muted-dvd {
+        color: #444 !important;
+        font-size: 6.5pt !important;
+        line-height: 1.05 !important;
+        display: inline-block !important;
+    }
+
+    /* Zjednodušení štítků typu (SERIE/FILTRY/VSTRIKOVNA) pro tisk */
+    html body .tbl td [class^="badge-"],
+    html body .tbl td [class*=" badge-"] {
+        background: transparent !important;
+        color: #000 !important;
+        border: 1px solid #666 !important;
+        padding: 1px 3px !important;
+        font-size: 6.5pt !important;
+        font-weight: 700 !important;
+        border-radius: 2px !important;
+    }
+
+    html body .tbl td.num-col,
+    html body .tbl th.num-col {
+        text-align: right !important;
+        white-space: nowrap !important;
+    }
+
+    html body .tbl td.center-col,
+    html body .tbl th.center-col {
+        text-align: center !important;
+        white-space: nowrap !important;
+    }
+
+    html body .tbl tbody tr:nth-child(even) td {
+        background-color: #f7f7f7 !important;
+    }
+}
+</style>
+
+<div class="topbar no-print">
     <div class="d-flex align-items-center gap-3">
         <button class="btn-icon d-md-none" id="sidebar-toggle"><i class="bi bi-list fs-5"></i></button>
         <span class="topbar-title"><?= t('records_title') ?></span>
@@ -161,12 +400,36 @@ require APP_ROOT . '/includes/layout.php';
 
 <div class="content">
 
+<!-- Tisková hlavička (zobrazí se pouze při tisku přímo nad tabulkou na 1. straně) -->
+<div class="print-only print-header">
+    <table class="print-header-table">
+        <tr>
+            <td>
+                <h1><?= h(t('records_title')) ?> (<?= date('d.m.Y', strtotime($fOd)) ?> – <?= date('d.m.Y', strtotime($fDo)) ?>)</h1>
+                <div style="font-size:7.5pt;color:#444;margin-top:2px">
+                    <?= h(t('typ')) ?>: <strong><?= h($selectedTypLabel) ?></strong>
+                    | <?= h(t('smena')) ?>: <strong><?= h($fSmena !== '' ? $fSmena : t('all')) ?></strong>
+                    | <?= h(t('group')) ?>: <strong><?= h($fSkupina !== '' ? $fSkupina : t('all')) ?></strong>
+                    <?php if ($selectedPracovisteName !== ''): ?> | <?= h(t('pracovisite')) ?>: <strong><?= h($selectedPracovisteName) ?></strong><?php endif; ?>
+                    <?php if ($fJmeno !== ''): ?> | <?= h(t('pracovnik')) ?>: <strong><?= h($fJmeno) ?></strong><?php endif; ?>
+                    <?php if ($fOeeMin !== ''): ?> | OEE &ge; <strong><?= h($fOeeMin) ?>%</strong><?php endif; ?>
+                </div>
+            </td>
+            <td class="print-header-meta">
+                Počet záznamů: <strong><?= number_format(count($rows)) ?></strong><br>
+                Vytištěno: <?= date('d.m.Y H:i') ?>
+            </td>
+        </tr>
+    </table>
+</div>
+
 <!-- Statistiky -->
 <div class="row g-3 mb-4 no-print">
     <?php $stats = [
         [$stat['cnt']??0, t('record_id').' / '.t('records_btn'), 'bi-file-earmark-text'],
         [number_format((int)($stat['vyr']??0)), t('produced_ks'), 'bi-boxes'],
-        [number_format((int)($stat['nok']??0)), t('nok_ks'), 'bi-x-octagon'],
+        [number_format((int)($stat['nok']??0)), t('nok_total'), 'bi-x-octagon'],
+        [number_format((int)($stat['nok_operator']??0)), t('summary_operator_nok'), 'bi-person-x'],
         [$stat['oee_avg'] ? round($stat['oee_avg'],1).'%' : '—', t('avg_oee'), 'bi-speedometer2'],
         [number_format((int)($stat['prostoj']??0)).' min', t('downtime_min'), 'bi-pause-circle'],
     ]; foreach ($stats as [$val,$lbl,$ico]): ?>
@@ -208,7 +471,7 @@ require APP_ROOT . '/includes/layout.php';
         <div class="col-4 col-md-1"><label class="form-label-dvd"><?= t('oee_min_filter') ?></label><input type="number" name="oee_min" class="form-control" min="0" max="100" value="<?= h($fOeeMin) ?>" placeholder="—"></div>
         <div class="col-auto d-flex gap-2 mt-1">
             <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-funnel me-1"></i><?= t('filter') ?></button>
-            <a href="zaznamy.php" class="btn-outline" style="padding:.35rem .8rem;font-size:.78rem"><?= t('reset') ?></a>
+            <a href="zaznamy.php?clear_filters=1" class="btn-outline" style="padding:.35rem .8rem;font-size:.78rem"><?= t('reset') ?></a>
         </div>
     </div>
 </form>
@@ -224,11 +487,21 @@ require APP_ROOT . '/includes/layout.php';
     <div class="overflow-x">
     <table class="tbl">
         <thead><tr>
-            <th>ID</th><th><?= t('typ') ?></th><th><?= t('datum') ?></th><th><?= t('column_cw') ?></th>
-            <th><?= t('pracovisite') ?></th><th><?= t('nazev_dilu') ?></th>
-            <th><?= t('smena') ?></th><th><?= t('group') ?></th><th><?= t('pracovnik') ?></th>
-            <th><?= t('vyrobeno') ?></th><th><?= t('nok_ks') ?></th><th><?= t('cisty_cas') ?></th>
-            <th><?= t('column_oee') ?></th><th><?= t('prostoje') ?></th><th class="no-print"><?= t('actions') ?></th>
+            <th class="center-col">ID</th>
+            <th class="center-col"><?= t('typ') ?></th>
+            <th class="center-col"><?= t('datum') ?></th>
+            <th><?= t('pracovisite') ?></th>
+            <th><?= t('nazev_dilu') ?></th>
+            <th class="center-col"><?= t('smena') ?></th>
+            <th class="center-col"><?= t('group') ?></th>
+            <th><?= t('pracovnik') ?></th>
+            <th class="num-col"><?= t('vyrobeno') ?></th>
+            <th class="num-col"><?= t('nok_total') ?></th>
+            <th class="num-col"><?= t('summary_operator_nok') ?></th>
+            <th class="num-col"><?= t('cisty_cas') ?></th>
+            <th class="num-col"><?= t('column_oee') ?></th>
+            <th class="num-col"><?= t('prostoje') ?></th>
+            <th class="no-print"><?= t('actions') ?></th>
         </tr></thead>
         <tbody>
         <?php if (empty($rows)): ?>
@@ -238,25 +511,26 @@ require APP_ROOT . '/includes/layout.php';
             $oc  = $oee!==null ? ($oee>=85?'good':($oee>=70?'warn':'bad')) : '';
         ?>
         <tr data-href="<?= APP_URL ?>/admin/zapis_detail.php?id=<?= $r['id'] ?>">
-            <td class="mono text-accent">#<?= $r['id'] ?></td>
-            <td><span class="badge-<?= $r['typ'] ?>"><?= strtoupper($r['typ']) ?></span></td>
-            <td class="mono"><?= date('d.m.Y',strtotime($r['datum'])) ?></td>
-            <td class="mono text-muted-dvd"><?= $r['cw'] ?></td>
+            <td class="mono text-accent center-col">#<?= $r['id'] ?></td>
+            <td class="center-col"><span class="badge-<?= $r['typ'] ?>"><?= strtoupper($r['typ']) ?></span></td>
+            <td class="mono center-col"><?= date('d.m.Y',strtotime($r['datum'])) ?></td>
+            
             <td><?= h($r['kod_pracovisite']??'') ?><br><small class="text-muted-dvd"><?= h($r['nazev_pracovisite']??'') ?></small></td>
             <td><?= h($r['nazev_dilu']??'') ?><br><small class="text-muted-dvd"><?= h(($r['zakaznik']??'').' / '.($r['projekt']??'')) ?></small></td>
-            <td class="mono"><?= h($r['smena']) ?></td>
-            <td class="mono text-center"><?= h($r['skupina'] ?: '—') ?></td>
+            <td class="mono center-col"><?= h($r['smena']) ?></td>
+            <td class="mono text-center center-col"><?= h($r['skupina'] ?: '—') ?></td>
             <td><?= h($r['jmeno']??'') ?></td>
-            <td class="mono text-accent"><?= number_format((int)$r['vyrobeno_ks']) ?></td>
-            <td class="mono <?= $r['nok_ks']>0?'text-accent2':'' ?>"><?= number_format((int)$r['nok_ks']) ?></td>
-            <td class="mono"><?= $r['cisty_cas_min']??'—' ?></td>
-            <td>
+            <td class="mono text-accent num-col"><?= number_format((int)$r['vyrobeno_ks']) ?></td>
+            <td class="mono num-col <?= $r['nok_ks']>0?'text-accent2':'' ?>"><?= number_format((int)$r['nok_ks']) ?></td>
+            <td class="mono num-col <?= $r['nok_operator_ks']>0?'text-accent2':'' ?>"><?= number_format((int)$r['nok_operator_ks']) ?></td>
+            <td class="mono num-col"><?= $r['cisty_cas_min']??'—' ?></td>
+            <td class="num-col">
                 <?php if ($oee!==null): ?>
                 <span class="mono" style="font-size:.78rem"><?= $oee ?>%</span>
                 <div class="oee-bar-wrap"><div class="oee-bar-fill oee-<?= $oc ?>" style="width:<?= min(100,$oee) ?>%"></div></div>
                 <?php else: ?><span class="text-muted-dvd">—</span><?php endif; ?>
             </td>
-            <td class="mono"><?= (int)$r['prostoj_celkem_min'] ?> <?= t('unit_minutes') ?></td>
+            <td class="mono num-col"><?= (int)$r['prostoj_celkem_min'] ?> <?= t('unit_minutes') ?></td>
             <td class="no-print">
                 <a href="<?= APP_URL ?>/admin/zapis_detail.php?id=<?= $r['id'] ?>" class="btn-icon" title="<?= t('detail') ?>"><i class="bi bi-eye"></i></a>
                 <?php if (!hasOnlyRole('read')): ?>

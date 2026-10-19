@@ -4,6 +4,7 @@ requireLogin();
 
 $pageTitle = t('manual_title');
 $activePage = 'manual';
+$isPrintOnly = isPrintOnlyRole();
 
 $baseUrl = APP_URL;
 $manualMode = (string)get('manual_mode', 'detailed');
@@ -103,6 +104,15 @@ $manualGuideKeys = [
 ];
 
 $getGuideForItem = static function (array $item) use ($manualKeyFromUrl, $manualGuideKeys, $loadLocalizedList): array {
+    if (!empty($item['print_only'])) {
+        return [
+            'purpose' => t('manual_guide_print_purpose'),
+            'steps' => $loadLocalizedList('manual_guide_print_step_'),
+            'inputs' => $loadLocalizedList('manual_guide_print_input_'),
+            'errors' => $loadLocalizedList('manual_guide_print_error_'),
+            'tips' => $loadLocalizedList('manual_guide_print_tip_'),
+        ];
+    }
     $manualKey = $manualKeyFromUrl((string)$item['url']);
     $guide = $manualGuideKeys[$manualKey] ?? [];
     if ($guide === []) {
@@ -157,8 +167,13 @@ $getGuideForItem = static function (array $item) use ($manualKeyFromUrl, $manual
 };
 
 $dvdItems = [];
-if (canWrite()) {
+if (canWrite() || $isPrintOnly) {
+    $formDescription = $isPrintOnly ? t('manual_desc_print_only') : t('manual_desc_form');
     $dvdItems[] = ['label' => t('nav_form'), 'url' => $baseUrl . '/index.php', 'desc' => t('manual_desc_form')];
+    if ($isPrintOnly) {
+        $dvdItems[0]['desc'] = $formDescription;
+        $dvdItems[0]['print_only'] = true;
+    }
 }
 if (hasAnyRole(['superadmin', 'admin']) && !hasOnlyRole('rework')) {
     $dvdItems[] = ['label' => t('nav_records'), 'url' => $baseUrl . '/admin/zaznamy.php', 'desc' => t('manual_desc_records')];
@@ -238,6 +253,9 @@ if (canAdmin() || hasRole('serizovac_admin')) {
             $managementItems[] = ['label' => t('nav_scripts'), 'url' => $baseUrl . '/admin/scripts.php', 'desc' => t('manual_desc_scripts')];
         }
     }
+}
+if (isRoleSimulationActive() && isActualSuperAdmin() && !isSuperAdmin()) {
+    $managementItems[] = ['label' => t('nav_scripts'), 'url' => $baseUrl . '/admin/scripts.php', 'desc' => t('manual_desc_scripts')];
 }
 $addSection(t('nav_admin'), $managementItems);
 

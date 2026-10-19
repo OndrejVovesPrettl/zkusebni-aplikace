@@ -1,8 +1,47 @@
 # Testovací plán oprávnění rolí
 
-Verze test planu: v5.1.1
+Verze test planu: v5.6.6
+
+## NOK matice
+- Otevřít správu NOK bez výběru a ověřit povinný modal; matice se před výběrem nevykreslí.
+- Vyhledat pracoviště podle AFO, kódu i názvu a ověřit správné filtrování seznamu.
+- Vybrat 1 až 5 různých AFO; šestá volba se musí zablokovat.
+- Ověřit, že se vykreslí jen zvolené sloupce a po uložení zůstane výběr zachovaný.
+- Změnit hodnotu ve vybraném AFO a ověřit, že nastavení nevybraných pracovišť zůstane stejné.
+- Ověřit, že modal při filtrování seznamu nemění výšku a tlačítko Přestavět z Excelu není viditelné.
+
+## Hlavní formulář a tisk
+- Vybrat pracoviště, začít měnit text a ověřit vymazání skrytého ID i předvyplněných údajů.
+- Po zrušení výběru spustit přípravu tisku a ověřit, že tiskopis neobsahuje údaje předchozího pracoviště.
+- Ověřit, že NOK položky bez odpovídající AFO mapy nejsou zobrazeny.
+- Znovu vybrat platné pracoviště a ověřit správné údaje na obou stranách tiskopisu.
+
+## Přehled záznamů
+- Nastavit filtry, otevřít detail nebo editaci záznamu a vrátit se; filtry mají zůstat zachované.
+- Použít Reset a ověřit, že uložené filtry jsou vymazány.
+
+## Import pracovníků
+- Ověřit pořadí CSV `interni_id;jmeno;ukonceni;smennost;role` a import volného textu role bez whitelistu.
+- Ověřit prázdnou i chybějící hodnotu role: v obou případech se musí uložit `D`.
+- Ověřit, že duplicate review zachová roli vybraného řádku a full-replace import uloží roli pro každé interní ID.
+- Ověřit, že IKOS refresh ponechá role existujících pracovníků a nové pracovníky založí s rolí `D`.
+- Ověřit CSV se 3 i 4 sloupci; prázdné nebo neplatné datum ukončení se nesmí interpretovat jako budoucí.
+- Ověřit filtry osobního čísla, jména, směnnosti, třídy a stavu zaměstnání.
+- Ověřit řazení každého datového sloupce v cyklu ASC → DESC → vypnuto a zachování filtrů.
+- Ověřit, že duplicity se zobrazí v modalu a u každé skupiny lze vybrat jednoho kandidáta nebo žádného.
+- Ověřit automatický skip duplicitní skupiny pouze tehdy, když mají všichni kandidáti datum ukončení před dneškem.
+- Ověřit, že formulář `index.php` nenabízí zaměstnance s dnešním, minulým nebo chybějícím datem ukončení.
 
 ## Přihlášení
+
+### Simulátor rolí
+- Přihlásit se jako skutečný `superadmin` a otevřít `admin/scripts.php`.
+- Zvolit každou roli a ověřit, že sidebar odpovídá stejným permission podmínkám jako skutečný účet.
+- Při simulaci `fsk_print` ověřit Nový zápis, tisk bez pracoviště, profil, jazyk, téma a odhlášení.
+- Při simulaci `writer` ověřit Traceability menu, Nový zápis, read-only tisk a nemožnost odeslat výrobní data.
+- Ověřit zobrazení menu pro `read`, `write`, `rework`, `serizovac` a `traceability` proti `includes/layout.php`.
+- Ověřit, že během simulace jsou skripty, release a deploy akce skryté a POST volání serverově odmítnuté.
+- Kliknout na Scripty a simulaci ukončit bez odhlášení; původní superadmin menu se musí obnovit.
 **Heslo pro všechny role**: `InitAdmin123+`
 
 ---

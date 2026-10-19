@@ -1,7 +1,7 @@
 # Report rolí a oprávnění
 
-Datum: 2026-04-28  
-Poslední update: role matice + deploy workflow v Skriptech + uvodni mail pro nove uzivatele (v5.0.7)  
+Datum: 2026-10-06
+Poslední update: výběr až pěti AFO v editoru NOK matice (v5.6.6)
 Zdroj: aktuální implementace v `includes/config.php`, `includes/layout.php` a guardy v `admin/*.php`.
 
 Legenda: Ano = má přístup/oprávnění, Ne = bez přístupu/oprávnění.
@@ -13,9 +13,10 @@ Legenda: Ano = má přístup/oprávnění, Ne = bez přístupu/oprávnění.
 | `superadmin` | Ano | Ano | Ano | Ano | Ano (vč. `scripts`) | Ano | Ano | Ano | Nejvyšší práva |
 | `admin` | Ano | Ano | Ano | Ano | Ano (bez `scripts`) | Ano | Ano | Ne | Prakticky skoro superadmin |
 | `write` | Ano | Ne | Ne | Ne | Ne | Ano | Ne | Ne | Operátor hlavního formuláře |
-| `writer` | Ne | Ano | Ano | Ano | Ne | Ne | Ano | Ne | Traceability editace bez formuláře |
+| `writer` | Ne | Ano | Ano | Ano | Ne | Pouze výběr pracoviště/okruhu a tisk FSK | Ano | Ne | Traceability Lineleader; bez zápisu do hlavního formuláře |
 | `traceability` | Ne | Ano | Ano | Ano | Ne | Ne | Ne (jen čtení) | Ne | Traceability read-only |
 | `read` | Ne | Ano | Ano | Ano | Ne | Ne | Ne (jen čtení) | Ne | Obecný read-only |
+| `fsk_print` | Ano | Ne | Ne | Ne | Ne | Pouze výběr pracoviště/okruhu a tisk | Ne | Ne | Výhradní role; bez navigace, zápisu a přímého přístupu k ostatním routám |
 
 ## Poznamka k menu v4.7.0
 

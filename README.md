@@ -1,4 +1,4 @@
-# DVD Sledování výroby v5.4.0 - Instalační a provozní příručka
+# DVD Sledování výroby v5.6.6 - Instalační a provozní příručka
 
 ## Struktura projektu
 
@@ -46,7 +46,7 @@ dvd/                                ← Složka aplikace (URL dle APP_URL)
 │   └── pracovisite.php             ← JSON API pro data pracoviště
 │
 ├── includes/
-    ├── config.php                  ← Bootstrap + DB + helpery (APP_VERSION 5.4.0)
+    ├── config.php                  ← Bootstrap + DB + helpery (APP_VERSION 5.6.6)
 │   ├── config.local.php.example    ← Lokální konfigurace
 │   ├── import_runtime.php          ← Sdílené mapování/import helpery
 │   ├── import_excel.py             ← Parser Excel/CSV
@@ -78,6 +78,67 @@ dvd/                                ← Složka aplikace (URL dle APP_URL)
 ├── uploads/tmp/                    ← Locky + runtime state soubory (logy a tmp data negitovat)
 └── backupSQL/                      ← Lokální SQL zálohy mimo git
 ```
+
+## Aktuální CSV import pracovníků
+
+```text
+interni_id;jmeno;ukonceni;smennost;role
+11726;Bobková Světlana;31.12.2099;Směna A;D
+11587;Balogová Milada;31.12.2099;Směna B;
+```
+
+Pole `role` je volitelné. Prázdná nebo chybějící hodnota se uloží jako `D`; ostatní hodnoty se přijímají jako volný text bez omezeného seznamu.
+
+## Co je nové ve v5.6.6
+
+- NOK matice umožňuje vybrat až pět pracovišť a vykreslí jen jejich sloupce.
+- Uložení zachovává nastavení nevybraných pracovišť; AFO seznam lze filtrovat hledáním.
+- Matice lépe využívá šířku obrazovky a tlačítko Přestavět z Excelu je skryté.
+
+## Co bylo nové ve v5.6.5
+
+- Změna pracoviště zneplatní stará předvyplněná data; tisk před sestavením ověřuje platné ID pracoviště.
+- NOK položky bez AFO mapování se nezobrazí.
+- Přehled záznamů obnovuje filtry po návratu z akce a umožňuje jejich úplné vymazání tlačítkem Reset.
+- Detail pracovníka lépe využívá šířku obrazovky a zalamuje dlouhé údaje pracoviště.
+
+## Co bylo nové ve v5.6.4
+
+- Číselník pracovníků ukládá datum ukončení a zobrazuje stavy **Aktivní/Ukončeno**; přesné datum se ve výpisu nezobrazuje.
+- Hlavní formulář nabízí pouze pracovníky s datem ukončení v budoucnosti.
+- Importní CSV používá formát `interni_id;jmeno;smennost;ukonceni`; duplicity lze vybrat v modalu a již ukončené duplicitní skupiny se přeskočí.
+- Číselník má sloupcové filtry, selecty pro směnnost/třídu a řazení ASC/DESC/vypnuto.
+- Synchronizace uchovává datum ukončení a třídu zaměstnance.
+
+## Co bylo nové ve v5.6.3
+
+- Traceability Lineleader (`writer`) může na hlavním formuláři vybrat okruh/pracoviště a tisknout, ale nemůže zapisovat výrobní data.
+- Simulátor rolí po změně role znovu načítá stránku přes POST/Redirect/GET a menu odpovídá simulované roli.
+- Opravena chyba OEE Top NOK způsobená rozdílnou kolací textových hodnot v databázi.
+- Aktualizován úplný statický i role-based manuál podle aktuálního stavu projektu.
+
+## Co bylo nové ve v5.6.2
+
+- Role `fsk_print` poskytuje read-only výběr pracoviště/okruhu a tisk prázdné nebo vyplněné A4 šablony.
+- FSK má omezený sidebar s Novým zápisem, profilem, odhlášením a nastavením tématu, jazyka a kompaktního režimu.
+- Superadmin může v `admin/scripts.php` simulovat libovolnou roli; menu se řídí stejnými permission podmínkami jako skutečný účet.
+- Simulaci lze ukončit bez odhlášení a spouštění skriptů/deploy akcí je během simulace blokováno.
+
+## Co bylo nové ve v5.6.0
+
+- Default „Nezapočítávat operátorovi“ se spravuje v NOK/AFO matici pro každé pracoviště a NOK kód zvlášť.
+- V novém i editovaném záznamu lze default konkrétního pracoviště přepsat; fyzický NOK se stále eviduje celý.
+- Scrap/Q/OEE pracovníků a přehledy rozlišují NOK celkem a NOK operátora.
+- Excel rebuild/import matice zachovává její per-pracovištní výjimky.
+
+## Co je nové ve v5.5.0
+
+- Měsíční výsledovka operátorů s filtry, OEE a CSV exportem; sdílené záznamy se v souhrnech počítají pouze jednou.
+- Přidaný denní checklist seřizovače, editor checklistů a katalog úkonů podle projektu.
+- Aktualizovány výpočty OEE, detail pracoviště, formulář, editace záznamů a správa pracovišť.
+- Testovací instalace `v3.4` si zachovává vlastní URL.
+
+- Při bootstrapu databáze se přidá typ `vstrikovna` a nastaví se na určených pracovištích i souvisejících záznamech; před prvním spuštěním vytvořte zálohu DB.
 
 ## Co je nove ve v5.3.4
 
@@ -484,9 +545,9 @@ cislo_id;zakaznik;projekt;verze;kod_pracovisite;nazev_pracovisite;nazev_dilu;sap
 
 ### Pracovníci (`pracovnici.csv`)
 ```
-interni_id;jmeno;smennost
-11726;Bobková Světlana;Směna A
-11587;Balogová Milada;Směna B
+interni_id;jmeno;ukonceni;smennost;role
+11726;Bobková Světlana;31.12.2099;Směna A;D
+11587;Balogová Milada;31.12.2099;Směna B;
 ```
 
 ### Uživatelé (`users.csv`)

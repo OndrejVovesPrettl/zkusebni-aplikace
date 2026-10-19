@@ -1,4 +1,4 @@
-# Dependency Graph (v5.4.0)
+# Dependency Graph (v5.6.6)
 
 Tento soubor popisuje zavislosti mezi hlavni casti aplikace DVD Sledovani vyroby.
 
@@ -8,6 +8,11 @@ graph TD
     Browser --> Save[save_zapis.php]
     Browser --> API[api/*]
     Browser --> AdminCore[admin/*]
+    AdminCore --> Oee[admin/oee.php]
+    AdminCore --> Results[admin/vysledovka.php]
+    AdminCore --> Checklist[admin/serizovac_checklist.php]
+    Checklist --> ChecklistLib[includes/serizovac_checklist.php]
+    ChecklistLib --> ChecklistCatalog[serizovac_checklist_catalog]
 
     Index --> Config[includes/config.php]
     Save --> Config
@@ -29,10 +34,13 @@ graph TD
 
     %% NOK System (v5.3 refactored)
     NokAdmin[admin/nok_kody.php] --> Config
-    Index --> NokAdmin
-    SaveZapis[save_zapis.php] --> NokAdmin
-    ZapisEdit[admin/zapis_edit.php] --> NokAdmin
-    NokAdmin --> NokMatrix[(nok_matrix_afo<br/>nok_kody)]
+    Index --> Config
+    SaveZapis[save_zapis.php] --> Config
+    ZapisEdit[admin/zapis_edit.php] --> Config
+    SaveZapisEdit[admin/save_zapis_edit.php] --> Config
+    Config --> NokOperatorDefaults[Per-AFO NOK defaults]
+    NokAdmin --> NokMatrix[(nok_matrix_afo<br/>visibility + operator default per AFO/NOK)]
+    NokOperatorDefaults --> NokMatrix
 
     %% Manual
     Manual[admin/manual.php] --> Config
@@ -104,6 +112,14 @@ graph TD
 
 ## Poznamky
 - Primarni aplikacni databaze je `dvd_vyroba`, traceability data pouzivaji i `traceability2`.
+- `includes/config.php` runtime migraci udrzuje sloupce `trida`, `datum_ukonceni` a `role` v tabulce `pracovnici`; role ma volnou textovou hodnotu a default `D`.
+- **v5.6.6**: `admin/nok_kody.php` vybere az pet AFO, nacte a uklada pouze jejich sloupce matice a kompaktnim layoutem lepe vyuziva sirku stranky.
+- **v5.6.5**: `index.php` invaliduje data po zmene vyberu pracoviste a pred tiskem kontroluje jeho ID; `admin/zaznamy.php` obnovuje session filtry po navratu z akce; detail pracovnika ma responzivnejsi rozlozeni.
+- **v5.6.4**: `admin/pracovnici.php` importuje datum ukonceni, resi duplicitni ID pred potvrzenym full-replace a zachovava tridu; `getPracovniciList(true)` filtruje hlavni formular na budoucí ukonceni.
+- **v5.6.3**: `writer` sdili read-only tiskovy rezim s `fsk_print`; role simulator se po zmene vraci pres POST/Redirect/GET; OEE Top NOK JOIN sjednocuje collation.
+- **v5.6.2**: `includes/config.php` oddeluje skutecne role od docasne simulace; `includes/layout.php` vykresluje menu podle simulovane role a `admin/scripts.php` zustava dostupny pouze skutecnemu superadminovi.
+- **v5.6.0**: Operator NOK vyjimky jsou ulozene per AFO/NOK v `nok_matrix_afo`; zaznam uklada vlastni override a operator aggregates pouzivaji `nok_operator_ks`.
+- **v5.5.0**: Doplněna měsíční výsledovka operátorů, deduplikované souhrny sdílených záznamů, číselné ID pracoviště v detailu a checklist seřizovače s katalogem úkonů.
 - **v5.4.0**: Release verze shrnuje stabilní stav `v3.4`, upravuje release metadata, doplnění dokumentace a finalizaci nulové výroby v `index.php`.
 - **v5.3.4**: Kodova zakladna `v3.4` byla synchronizovana se stavem `v5.3` v souborech `index.php`, `includes/config.php`, `admin/nok_kody.php`, `admin/prestavky.php`, `admin/zaznamy_pracovnici.php`, `admin/zaznamy_pracovnici_detail.php`.
 - **v5.3.3**: `index.php` sekce 02 pocita `Pauza` dynamicky podle casoveho prekryvu zaznamu s tabulkou `prestavky` (typ, rezim, smena).

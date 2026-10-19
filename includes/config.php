@@ -31,7 +31,7 @@ define('TRACEABILITY_LOCAL_DB', getenv('TRACEABILITY_LOCAL_DB') ?: ($localSecret
 
 // ── Aplikace ──────────────────────────────────────────────────
 define('APP_NAME', 'DVD Production Tracking');
-define('APP_VERSION', '5.4.0');
+define('APP_VERSION', '5.6.6');
 define('APP_ROOT', dirname(__DIR__));
 define('APP_URL', 'http://10.67.100.69/pisek/v5.3');
 
@@ -145,7 +145,7 @@ function t(string $key): string {
 }
 
 function isPisekTestInstance(): bool {
-    return str_contains(strtolower((string)APP_URL), '/pisek/v5.3');
+    return str_contains(strtolower((string)APP_URL), '/pisek/v3.4');
 }
 
 function pageTitlePrefix(): string {
@@ -181,8 +181,8 @@ function requireLogin(): void {
     }
 }
 
-const APP_ALLOWED_USER_ROLES = ['superadmin', 'admin', 'write', 'read', 'traceability', 'writer', 'rework', 'rework_admin', 'serizovac', 'serizovac_admin'];
-const APP_ROLE_PRIORITY = ['superadmin', 'admin', 'traceability', 'writer', 'write', 'rework_admin', 'rework', 'serizovac_admin', 'serizovac', 'read'];
+const APP_ALLOWED_USER_ROLES = ['superadmin', 'admin', 'write', 'read', 'traceability', 'writer', 'rework', 'rework_admin', 'serizovac', 'serizovac_admin', 'fsk_print'];
+const APP_ROLE_PRIORITY = ['superadmin', 'admin', 'traceability', 'writer', 'write', 'rework_admin', 'rework', 'serizovac_admin', 'serizovac', 'fsk_print', 'read'];
 
 function sanitizeRoles(array $roles): array {
     $normalized = [];
@@ -194,6 +194,9 @@ function sanitizeRoles(array $roles): array {
     }
 
     $result = array_keys($normalized);
+    if (in_array('fsk_print', $result, true)) {
+        return ['fsk_print'];
+    }
     usort($result, static function (string $a, string $b): int {
         $pa = array_search($a, APP_ROLE_PRIORITY, true);
         $pb = array_search($b, APP_ROLE_PRIORITY, true);
@@ -295,7 +298,20 @@ function saveUserRoles(int $userId, array $roles): void {
 }
 
 function getRoles(): array {
-    $roles = $_SESSION['admin_roles'] ?? [];
+    if (isRoleSimulationActive()) {
+        $roles = $_SESSION['role_simulation_roles'] ?? [];
+        $roles = sanitizeRoles(is_array($roles) ? $roles : []);
+        if ($roles !== []) {
+            return $roles;
+        }
+    }
+
+    $roles = getActualRoles();
+    if ($roles !== []) {
+        return $roles;
+    }
+
+    $roles = [];
     if (!is_array($roles) || $roles === []) {
         $legacyRole = (string)($_SESSION['admin_role'] ?? 'read');
         $roles = sanitizeRoles([$legacyRole]);
@@ -306,6 +322,59 @@ function getRoles(): array {
     return $roles;
 }
 
+function getActualRoles(): array {
+    $roles = $_SESSION['admin_actual_roles'] ?? $_SESSION['admin_roles'] ?? [];
+    if (!is_array($roles)) {
+        return [];
+    }
+    return sanitizeRoles($roles);
+}
+
+function isRoleSimulationActive(): bool {
+    return !empty($_SESSION['role_simulation_roles'])
+        && is_array($_SESSION['role_simulation_roles']);
+}
+
+function getSimulatedRoles(): array {
+    if (!isRoleSimulationActive()) {
+        return [];
+    }
+    return sanitizeRoles($_SESSION['role_simulation_roles']);
+}
+
+function isActualSuperAdmin(): bool {
+    return in_array('superadmin', getActualRoles(), true);
+}
+
+function requireActualSuperAdmin(): void {
+    if (!isLoggedIn() || !isActualSuperAdmin()) {
+        renderForbiddenPage(t('forbidden_role_message'));
+        exit;
+    }
+}
+
+function startRoleSimulation(array $roles): void {
+    $normalized = sanitizeRoles($roles);
+    if ($normalized === []) {
+        return;
+    }
+    if (!isset($_SESSION['admin_actual_roles'])) {
+        $_SESSION['admin_actual_roles'] = getActualRoles();
+    }
+    $_SESSION['role_simulation_roles'] = $normalized;
+    $_SESSION['admin_roles'] = $normalized;
+    $_SESSION['admin_role'] = getPrimaryRoleFromRoles($normalized);
+}
+
+function stopRoleSimulation(): void {
+    unset($_SESSION['role_simulation_roles']);
+    $actualRoles = getActualRoles();
+    if ($actualRoles !== []) {
+        $_SESSION['admin_roles'] = $actualRoles;
+        $_SESSION['admin_role'] = getPrimaryRoleFromRoles($actualRoles);
+    }
+}
+
 function getRole(): string { return getPrimaryRoleFromRoles(getRoles()); }
 function hasRole(string $role): bool { return in_array($role, getRoles(), true); }
 function hasOnlyRole(string $role): bool {
@@ -313,13 +382,44 @@ function hasOnlyRole(string $role): bool {
     return count($roles) === 1 && in_array($role, $roles, true);
 }
 function hasAnyRole(array $roles): bool {
-    $wanted = sanitizeRoles($roles);
+    $wanted = [];
+    foreach ($roles as $role) {
+        $value = strtolower(trim((string)$role));
+        if (in_array($value, APP_ALLOWED_USER_ROLES, true)) {
+            $wanted[$value] = true;
+        }
+    }
+    $wanted = array_keys($wanted);
     if ($wanted === []) {
         return false;
     }
     return array_intersect(getRoles(), $wanted) !== [];
 }
 function isSuperAdmin(): bool { return hasRole('superadmin'); }
+function isFskPrintRole(): bool { return hasOnlyRole('fsk_print'); }
+function isPrintOnlyRole(): bool { return isFskPrintRole() || hasOnlyRole('writer'); }
+
+function enforceFskPrintRouteAccess(): void {
+    if (!isLoggedIn() || !isFskPrintRole()) {
+        return;
+    }
+    $scriptPath = (string)(parse_url((string)($_SERVER['SCRIPT_NAME'] ?? ''), PHP_URL_PATH) ?? '');
+    $appPath = rtrim((string)(parse_url(APP_URL, PHP_URL_PATH) ?? ''), '/');
+    if (isRoleSimulationActive() && isActualSuperAdmin() && $scriptPath === $appPath . '/admin/scripts.php') {
+        return;
+    }
+    $allowedPaths = [
+        $appPath . '/index.php',
+        $appPath . '/admin/profile.php',
+        $appPath . '/admin/logout.php',
+    ];
+    if (!in_array($scriptPath, $allowedPaths, true)) {
+        http_response_code(403);
+        exit(t('fsk_print_only'));
+    }
+}
+
+enforceFskPrintRouteAccess();
 
 function renderForbiddenPage(string $message): void {
     if (headers_sent() === false) {
@@ -493,10 +593,11 @@ function ensureUsersRoleSupportsRework(): bool {
                 stripos($columnType, "'rework'") === false ||
                 stripos($columnType, "'rework_admin'") === false ||
                 stripos($columnType, "'serizovac'") === false ||
-                stripos($columnType, "'serizovac_admin'") === false
+                stripos($columnType, "'serizovac_admin'") === false ||
+                stripos($columnType, "'fsk_print'") === false
             )
         ) {
-            db()->exec("ALTER TABLE users MODIFY role ENUM('superadmin','admin','write','read','traceability','writer','rework','rework_admin','serizovac','serizovac_admin') DEFAULT 'read'");
+            db()->exec("ALTER TABLE users MODIFY role ENUM('superadmin','admin','write','read','traceability','writer','rework','rework_admin','serizovac','serizovac_admin','fsk_print') DEFAULT 'read'");
         }
 
         $checked = true;
@@ -1933,8 +2034,106 @@ function ensureVstrikovnaWorkplaces(): void {
 
 ensureVstrikovnaWorkplaces();
 
-function getPracovniciList(): array { 
-    return db_all('SELECT * FROM pracovnici WHERE aktivni=1 ORDER BY jmeno'); 
+function getPracovniciList(bool $currentOnly = false): array {
+    ensurePracovniciClassColumn();
+    if ($currentOnly) {
+        return db_all('SELECT * FROM pracovnici WHERE aktivni = 1 AND datum_ukonceni > CURDATE() ORDER BY jmeno');
+    }
+    return db_all('SELECT * FROM pracovnici WHERE aktivni = 1 ORDER BY jmeno');
+}
+
+function ensurePracovniciClassColumn(): bool {
+    static $checked = null;
+    if ($checked !== null) {
+        return $checked;
+    }
+
+    try {
+        $exists = (int)db_val(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+            ['pracovnici', 'trida']
+        );
+        if ($exists === 0) {
+            db()->exec('ALTER TABLE pracovnici ADD COLUMN trida VARCHAR(50) NULL AFTER smennost');
+        }
+        $endDateExists = (int)db_val(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+            ['pracovnici', 'datum_ukonceni']
+        );
+        if ($endDateExists === 0) {
+            db()->exec('ALTER TABLE pracovnici ADD COLUMN datum_ukonceni DATE NULL AFTER trida');
+        }
+        $roleExists = (int)db_val(
+            'SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+            ['pracovnici', 'role']
+        );
+        if ($roleExists === 0) {
+            db()->exec("ALTER TABLE pracovnici ADD COLUMN `role` VARCHAR(255) NOT NULL DEFAULT 'D' AFTER datum_ukonceni");
+        }
+        $checked = true;
+    } catch (Throwable $e) {
+        error_log('Worker schema check failed: ' . $e->getMessage());
+        $checked = false;
+    }
+
+    return $checked;
+}
+
+function parseWorkerTerminationDate(?string $value): string|false|null {
+    $value = trim((string)$value);
+    if ($value === '') {
+        return null;
+    }
+
+    foreach (['!Y-m-d', '!Y-m-d H:i:s', '!Y-m-d H:i', '!d.m.Y', '!d.m.Y H:i:s', '!d.m.Y H:i', '!d.m.y', '!d/m/Y', '!d/m/y', '!Y/m/d'] as $format) {
+        $date = DateTimeImmutable::createFromFormat($format, $value);
+        $errors = DateTimeImmutable::getLastErrors();
+        if ($date !== false && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0))) {
+            return $date->format('Y-m-d');
+        }
+    }
+
+    if (preg_match('/^\d{4,5}$/', $value)) {
+        $excelSerial = (int)$value;
+        if ($excelSerial > 0) {
+            return (new DateTimeImmutable('1899-12-30'))->modify('+' . $excelSerial . ' days')->format('Y-m-d');
+        }
+    }
+
+    return false;
+}
+
+function selectActiveWorkerRowsByInternalId(array $rows, ?string $today = null): array {
+    $today ??= date('Y-m-d');
+    $grouped = [];
+    foreach ($rows as $row) {
+        $interniId = trim((string)($row['interni_id'] ?? ''));
+        if ($interniId !== '') {
+            $grouped[$interniId][] = $row;
+        }
+    }
+
+    $selectedRows = [];
+    $skippedInactive = 0;
+    $skippedDuplicates = 0;
+    foreach ($grouped as $groupRows) {
+        $activeRows = array_values(array_filter($groupRows, static function (array $row) use ($today): bool {
+            $endDate = $row['datum_ukonceni'] ?? null;
+            return is_string($endDate) && $endDate !== '' && $endDate > $today;
+        }));
+        $skippedInactive += count($groupRows) - count($activeRows);
+        if ($activeRows === []) {
+            continue;
+        }
+        $selectedRows[] = $activeRows[0];
+        $skippedDuplicates += count($activeRows) - 1;
+    }
+
+    return [
+        'rows' => $selectedRows,
+        'skipped_inactive' => $skippedInactive,
+        'skipped_duplicate_in_file' => $skippedDuplicates,
+    ];
 }
 
 function ensureNokKodyMatrixSchema(): bool {
@@ -1987,6 +2186,115 @@ function ensureNokKodyMatrixSchema(): bool {
     }
 
     return $checked;
+}
+
+function ensureNokOperatorSchema(): bool {
+    static $checked = false;
+    static $ready = false;
+    if ($checked) {
+        return $ready;
+    }
+    $checked = true;
+
+    $locked = false;
+    try {
+        $locked = (int)db_val('SELECT GET_LOCK(?, 10)', ['dvd_nok_operator_schema']) === 1;
+        if (!$locked) {
+            throw new RuntimeException('Could not acquire NOK operator schema lock.');
+        }
+        if (!ensureNokKodyMatrixSchema()) {
+            throw new RuntimeException('Could not ensure NOK matrix schema.');
+        }
+
+        $columns = db_all(
+            'SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND (
+                  (TABLE_NAME = ? AND COLUMN_NAME = ?) OR
+                  (TABLE_NAME = ? AND COLUMN_NAME = ?) OR
+                  (TABLE_NAME = ? AND COLUMN_NAME = ?) OR
+                  (TABLE_NAME = ? AND COLUMN_NAME = ?)
+             )',
+              ['nok_matrix_afo', 'operator_excluded_default', 'nok_kody', 'operator_excluded_default', 'zapis_nok', 'operator_excluded', 'zapisy', 'nok_operator_ks']
+        );
+        $present = [];
+        foreach ($columns as $column) {
+            $present[$column['TABLE_NAME'] . '.' . $column['COLUMN_NAME']] = true;
+        }
+
+        $migrations = [
+            'zapis_nok.operator_excluded' => "ALTER TABLE zapis_nok ADD COLUMN operator_excluded TINYINT(1) DEFAULT NULL AFTER pocet",
+            'zapisy.nok_operator_ks' => "ALTER TABLE zapisy ADD COLUMN nok_operator_ks INT UNSIGNED DEFAULT NULL AFTER nok_ks",
+        ];
+        if (!isset($present['nok_matrix_afo.operator_excluded_default'])) {
+            db()->exec('ALTER TABLE nok_matrix_afo ADD COLUMN operator_excluded_default TINYINT(1) NOT NULL DEFAULT 0 AFTER zobrazit');
+            if (isset($present['nok_kody.operator_excluded_default'])) {
+                db()->exec('UPDATE nok_matrix_afo m JOIN nok_kody n ON n.id=m.nok_kod_id SET m.operator_excluded_default=n.operator_excluded_default');
+            }
+        }
+        foreach ($migrations as $key => $sql) {
+            if (!isset($present[$key])) {
+                db()->exec($sql);
+            }
+        }
+        $ready = true;
+    } catch (Throwable $e) {
+        error_log('NOK operator schema migration failed: ' . $e->getMessage());
+    } finally {
+        if ($locked) {
+            try {
+                db_val('SELECT RELEASE_LOCK(?)', ['dvd_nok_operator_schema']);
+            } catch (Throwable $e) {
+                error_log('NOK operator schema lock release failed: ' . $e->getMessage());
+            }
+        }
+    }
+
+    return $ready;
+}
+
+ensureNokOperatorSchema();
+
+function calculateNokOperatorQuantity(array $nokCounts, array $excludedByNokId, array $defaultExcludedByNokId = []): int {
+    $operatorNok = 0;
+    foreach ($nokCounts as $nokId => $quantity) {
+        $nokId = (string)(int)$nokId;
+        $quantity = max(0, (int)$quantity);
+        $excluded = $excludedByNokId[$nokId] ?? $defaultExcludedByNokId[$nokId] ?? 0;
+        if (!is_scalar($excluded) || (int)$excluded !== 1) {
+            $operatorNok += $quantity;
+        }
+    }
+    return $operatorNok;
+}
+
+function getNokAfoOperatorExclusionMap(): array {
+    if (!ensureNokKodyMatrixSchema()) {
+        return [];
+    }
+
+    $rows = db_all('SELECT afo, nok_kod_id, operator_excluded_default FROM nok_matrix_afo');
+    $map = [];
+    foreach ($rows as $row) {
+        $afo = trim((string)($row['afo'] ?? ''));
+        $nokId = (int)($row['nok_kod_id'] ?? 0);
+        if ($afo === '' || $nokId <= 0) {
+            continue;
+        }
+
+        $afoKeys = [$afo];
+        if (preg_match('/^\d+$/', $afo)) {
+            $afoNum = (string)((int)$afo);
+            if ($afoNum !== $afo) {
+                $afoKeys[] = $afoNum;
+            }
+        }
+
+        $excluded = (int)($row['operator_excluded_default'] ?? 0) === 1;
+        foreach ($afoKeys as $afoKey) {
+            $map[$afoKey][$nokId] = $excluded;
+        }
+    }
+    return $map;
 }
 
 function getNokAfoVisibilityMap(): array {
@@ -2777,3 +3085,4 @@ function diffData(array $old, array $new): array {
     }
     return $diff;
 }
+

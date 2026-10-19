@@ -5,7 +5,12 @@ requireAnyRole(['superadmin', 'admin', 'read']);
 $id = (int)get('id');
 if (!$id) redirect(APP_URL . '/admin/zaznamy.php');
 
-$z = db_row('SELECT * FROM zapisy WHERE id=?', [$id]);
+$z = db_row('
+    SELECT z.*, p.cislo_id AS skutecne_id_pracoviste 
+    FROM zapisy z 
+    LEFT JOIN pracovisite p ON p.id = z.pracovisite_id 
+    WHERE z.id=?
+', [$id]);
 if (!$z) { http_response_code(404); die(t('record_not_found')); }
 
 $workerIdJoin = "LEFT JOIN pracovnici p_interni ON CAST(p_interni.interni_id AS UNSIGNED) = zp.pracovnik_id
@@ -111,6 +116,7 @@ $positionSummary = $workers
     <div class="card-body-dvd">
     <div class="row g-2" style="font-size:.82rem">
         <?php $fields = [
+            ['ID pracoviště', 'skutecne_id_pracoviste'], // <-- TADY JE SPRÁVNÝ KLÍČ
             [t('label_customer'),'zakaznik'],[t('label_project'),'projekt'],[t('label_version'),'verze'],
             [t('label_workplace'),'kod_pracovisite'],[t('label_workplace_name'),'nazev_pracovisite'],
             [t('label_part_name'),'nazev_dilu'],[t('label_sap_number'),'sap_cislo'],
@@ -136,33 +142,42 @@ $positionSummary = $workers
     <div class="card-header-dvd"><span class="s-num">02</span><span class="s-title"><?= t('shift_times') ?></span></div>
     <div class="card-body-dvd">
     <div class="row g-2" style="font-size:.82rem">
-        <?php $sf = [
+        <?php 
+        $sf = [
             [t('label_date'), date('d.m.Y',strtotime($z['datum'])).' (KT '.$z['cw'].')'],
-            [t('label_shift'), $z['smena']], ['Skupina', $z['skupina'] ?? '—'], [t('label_arrival'), $z['cas_prichodu'] ? date('H:i',strtotime($z['cas_prichodu'])) : '—'],
+            [t('label_shift'), $z['smena']], ['Skupina', $z['skupina'] ?? '—'], 
+            [t('label_arrival'), $z['cas_prichodu'] ? date('H:i',strtotime($z['cas_prichodu'])) : '—'],
             [t('label_departure'), $z['cas_odchodu'] ? date('H:i',strtotime($z['cas_odchodu'])) : '—'],
             [t('label_work_time'), ($z['pracovni_doba_min']??'—').' min'],
             [t('label_break'), ($z['pauza_min']??0).' min'],
             [t('label_overtime'), ($z['prestas_min']??0).' min'],
             [t('label_net_time'), ($z['cisty_cas_min']??'—').' min'],
-            [t('label_worker'), $workerSummary ?: '—'],
-            [t('label_position'), $positionSummary ?: '—'],
             [t('label_recorded_by'), $z['zapsal']??'—'],
-        ]; foreach ($sf as [$l,$v]): ?>
+        ]; 
+        foreach ($sf as [$l,$v]): ?>
         <div class="col-6"><div class="form-label-dvd"><?= $l ?></div><div class="calc-display" style="min-height:30px;font-size:.78rem"><?= h($v) ?></div></div>
         <?php endforeach; ?>
-        <?php if ($workers): ?>
+        
+        <!-- Pracovník a pozice přehledně -->
         <div class="col-12">
             <div class="form-label-dvd"><?= t('label_worker') ?> / <?= t('label_position') ?></div>
             <div style="background:rgba(255,255,255,.04);border-radius:6px;padding:.55rem .7rem;font-size:.8rem">
-                <?php foreach ($workers as $worker): ?>
-                <div style="display:flex;justify-content:space-between;gap:1rem;padding:.15rem 0;border-bottom:1px solid rgba(255,255,255,.06)">
-                    <span><?= h($worker['display_jmeno']) ?></span>
-                    <span style="color:var(--muted)"><?= h($worker['pracovni_pozice'] ?: '—') ?></span>
-                </div>
-                <?php endforeach; ?>
+                <?php if ($workers): ?>
+                    <?php foreach ($workers as $worker): ?>
+                    <div style="display:flex;justify-content:space-between;gap:1rem;padding:.15rem 0;border-bottom:1px solid rgba(255,255,255,.06)">
+                        <span><?= h($worker['display_jmeno']) ?></span>
+                        <span style="color:var(--muted)"><?= h($worker['pracovni_pozice'] ?: '—') ?></span>
+                    </div>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <!-- Fallback pro velmi staré záznamy -->
+                    <div style="display:flex;justify-content:space-between;gap:1rem;padding:.15rem 0;border-bottom:1px solid rgba(255,255,255,.06)">
+                        <span><?= h($z['jmeno'] ?? '—') ?></span>
+                        <span style="color:var(--muted)"><?= h($z['pracovni_pozice'] ?: '—') ?></span>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
-        <?php endif; ?>
     </div>
     </div>
 </div>
@@ -176,16 +191,23 @@ $positionSummary = $workers
     <div class="row g-2 mb-3" style="font-size:.82rem">
         <?php 
         $vf = [
-            [t('label_produced_total'),number_format((int)$z['vyrobeno_ks']).' ks'],
-            [t('label_nok_pieces'), number_format((int)$z['nok_ks']).' ks'],
+            [t('label_produced_total'), number_format((int)$z['vyrobeno_ks'], 0, '', ' ').' ks'],
+            ['NOK celkem (vč. Tech)', number_format((int)$z['nok_ks'], 0, '', ' ').' ks'],
+            ['NOK operátora', number_format((int)($z['nok_operator_ks'] ?? $z['nok_ks']), 0, '', ' ').' ks'],
         ];
         if ((int)$z['k_posouzeni'] > 0) {
-            $vf[] = [t('label_to_assess'), number_format((int)$z['k_posouzeni']).' ks'];
+            $vf[] = [t('label_to_assess'), number_format((int)$z['k_posouzeni'], 0, '', ' ').' ks'];
         }
-        $vf[] = [t('label_produced_ok'), number_format((int)$z['vyrobeno_dobre_ks']).' ks'];
-        $vf[] = [t('tech_short') ?? 'Tech', number_format((int)$z['tech']).' ks'];
-        $vf[] = [t('blok_short') ?? 'Blok', number_format((int)$z['blok']).' ks'];
-        $vf[] = [t('tnz_short') ?? 'TNZ', number_format((int)$z['tnz']).' ks'];
+        
+        $vf[] = [t('label_produced_ok'), number_format((int)$z['vyrobeno_dobre_ks'], 0, '', ' ').' ks'];
+        $vf[] = [t('tech_short') ?? 'Tech', number_format((int)$z['tech'], 0, '', ' ').' ks'];
+        $vf[] = [t('blok_short') ?? 'Blok', number_format((int)$z['blok'], 0, '', ' ').' ks'];
+        
+        // Zpětná kompatibilita: TNZ se zobrazí JEN u starých záznamů, kde bylo číslo > 0
+        if ((int)$z['tnz'] > 0) {
+            $vf[] = [t('tnz_short') ?? 'TNZ', number_format((int)$z['tnz'], 0, '', ' ').' ks'];
+        }
+        
         $vf[] = [t('label_standard_pieces'), $z['norma_ks'] ? number_format($z['norma_ks'],4) : '—'];
         $vf[] = [t('label_cycle_time'), $z['cycle_time_min'] ? number_format($z['cycle_time_min'],4).' min' : '—'];
 
@@ -300,13 +322,14 @@ $positionSummary = $workers
     <div class="card-body-dvd p-0">
     <div class="overflow-x">
     <table class="ptbl">
-        <thead><tr><th><?= t('code') ?></th><th><?= t('description') ?></th><th><?= t('count') ?></th></tr></thead>
+        <thead><tr><th><?= t('code') ?></th><th><?= t('description') ?></th><th><?= t('count') ?></th><th><?= t('summary_operator_nok') ?></th></tr></thead>
         <tbody>
         <?php foreach ($nok as $n): ?>
         <tr>
             <td class="mono text-accent2"><?= $n['kod'] ?></td>
             <td><?= h($n['popis']) ?></td>
             <td class="mono" style="font-weight:600"><?= number_format($n['pocet']) ?></td>
+            <td><?= t((int)($n['operator_excluded'] ?? 0) === 1 ? 'nok_operator_excluded_status' : 'nok_operator_counted') ?></td>
         </tr>
         <?php endforeach; ?>
         </tbody>

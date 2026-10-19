@@ -1,4 +1,4 @@
-# Skripty - Utility pro údržbu (v5.0.10)
+# Skripty - Utility pro údržbu (v5.6.6)
 
 ## Jazykový Systém
 
@@ -14,9 +14,9 @@ Jazykovy workflow je popsany v `LANGUAGES.md` a technicky se opira o skripty:
 Kontrola release pripravenosti a volitelne vytvoreni/push tagu.
 
 ```bash
-php scripts/release_check.php 5.0.7
-php scripts/release_check.php 5.0.7 --create-tag
-php scripts/release_check.php 5.0.7 --create-tag --push
+php scripts/release_check.php 5.6.6
+php scripts/release_check.php 5.6.6 --create-tag
+php scripts/release_check.php 5.6.6 --create-tag --push
 ```
 
 Co kontroluje:
@@ -40,8 +40,10 @@ GitHub nastaveni (doporučeno):
 
 GitHub release postup:
 1. Vytvor tag pres `release_check.php`.
-2. Na GitHubu otevri Releases -> Draft a new release.
-3. Vyber tag `vX.Y.Z` a dopln changelog.
+2. Pushni commit s release metadaty na `main`.
+3. Vytvor GitHub release z tagu, napr. `gh release create v5.6.6 --repo Niobisoft/dvdsql --title "v5.6.6" --notes-file RELEASE_NOTES.md`.
+
+Pred vydanim over, ze `origin` smeruje na `https://github.com/Niobisoft/dvdsql`, working tree je cisty a tag jeste neexistuje.
 
 Poznamka k cistote repozitare:
 - SQL dumpy v `backupSQL/` jsou lokalni provozni zalohy a od v5.0.10 se negituji.
@@ -219,9 +221,13 @@ Importuje pracovniky ze souboru:
 do tabulky `pracovnici`.
 
 Pravidla:
-- Novy pracovnik -> vlozi se jako `aktivni=1`.
-- Existujici pracovnik (podle `interni_id` nebo `jmeno`) -> preskoci se bez zmeny.
+- CSV pouziva poradi `interni_id;jmeno;ukonceni;smennost`.
+- Pro kazde `interni_id` se importuje pouze radek s `ukonceni` v budoucnosti; historicke radky se preskoci.
+- Pokud ma jedno ID historicky i aktivni radek, vybere se aktivni radek bez ohledu na poradi v souboru.
+- Existujici role pracovnika zustava pri synchronizaci zachovana; nove pracovniky dostanou vychozi roli `D`.
+- Pokud zdroj neobsahuje zadne aktualne zamestnane pracovniky, databaze se nezmeni.
 - Pri nezmenenem `mtime` souboru se bez `force` import preskoci (`source_unchanged`).
+- Po zmene synchronizacni logiky se soubor jednorazove zpracuje znovu podle `sync_version`, i kdyz se jeho `mtime` nezmenilo.
 - U textu se resi konverze kodovani (UTF-8 / Windows-1250 / ISO-8859-2), aby jmena s diakritikou byla korektni.
 
 Web:

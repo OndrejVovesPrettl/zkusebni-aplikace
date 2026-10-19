@@ -1,10 +1,10 @@
 {
   "name": "dvd-production-tracking",
-  "version": "5.0.5",
+  "version": "5.6.6",
   "private": true,
   "description": "DVD Production Tracking - project metadata",
   "license": "MIT",
   "scripts": {
-    "release:check": "php scripts/release_check.php 5.0.5"
+    "release:check": "php scripts/release_check.php 5.6.6"
   }
 }

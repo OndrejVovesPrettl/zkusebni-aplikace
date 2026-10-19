@@ -19,6 +19,7 @@ $pracovisteList = getPracovisteList();
 $pracovniciList = getPracovniciList();
 $nokKodyFlat    = getNokKodyGrouped();
 $nokAfoMap      = getNokAfoVisibilityMap();
+$nokOperatorAfoMap = getNokAfoOperatorExclusionMap();
 $prostojTypy    = getProstojTypyList();
 $smenyList      = getSmenyList();
 $prestavkyList  = getPrestavkyList();
@@ -50,7 +51,7 @@ $prostoje     = db_all("SELECT id, typ_kod, cas_od, cas_do, minuty, pocet, pozna
     WHERE zapis_id=? AND UPPER(typ_kod) NOT IN ('TECH_SUM','PLAN_SUM','VYR_SUM','KVAL_SUM','LOG_SUM','OST_SUM')
     ORDER BY id", [$id]);
     
-$nokZaznamy   = db_all('SELECT nok_kod_id, pocet FROM zapis_nok WHERE zapis_id=? AND pocet>0', [$id]);
+$nokZaznamy   = db_all('SELECT nok_kod_id, pocet, operator_excluded FROM zapis_nok WHERE zapis_id=? AND pocet>0', [$id]);
 $hodiny       = db_all('SELECT * FROM hodinove_sledovani WHERE zapis_id=? ORDER BY hodina_od', [$id]);
 
 $prostRows = db_all('SELECT UPPER(typ_kod) AS typ_kod, SUM(minuty) AS minuty
@@ -92,7 +93,12 @@ $formDowntimeSummary = [
 ];
 
 $nokMap = [];
-foreach ($nokZaznamy as $n) $nokMap[(int)$n['nok_kod_id']] = (int)$n['pocet'];
+$nokOperatorExcludedMap = [];
+foreach ($nokZaznamy as $n) {
+    $nokId = (int)$n['nok_kod_id'];
+    $nokMap[$nokId] = (int)$n['pocet'];
+    $nokOperatorExcludedMap[$nokId] = $n['operator_excluded'] === null ? null : (int)$n['operator_excluded'];
+}
 $hodinyMap = [];
 foreach ($hodiny as $h) $hodinyMap[$h['hodina_od']] = $h;
 
@@ -184,6 +190,7 @@ $jsLang = [
     'summary_net_time' => t('summary_net_time'),
     'summary_produced' => t('summary_produced'),
     'summary_nok' => t('summary_nok'),
+    'summary_operator_nok' => t('summary_operator_nok'),
     'summary_ok' => t('summary_ok'),
     'summary_oee' => t('summary_oee'),
     'oee_status_above' => t('oee_status_above'),
@@ -431,7 +438,13 @@ window.SHIFT_REF_DATE = '<?= defined('SHIFT_REF_DATE_FILTRY') ? SHIFT_REF_DATE_F
                    value="<?= (int)$z['nok_ks'] ?>" onchange="calcKs();calcOEE()">
         </div>
         
-        <?php foreach(['tech'=>t('tech_short'),'blok'=>t('blok_short'),'tnz'=>t('tnz_short')] as $k=>$l): ?>
+        <?php 
+        $kolonky = ['tech' => t('tech_short') ?? 'Tech', 'blok' => t('blok_short') ?? 'Blok'];
+        // Zpětná kompatibilita: u starých záznamů zobrazíme i TNZ, abychom je při uložení nesmazali
+        if ((int)($z['tnz'] ?? 0) > 0) {
+            $kolonky['tnz'] = t('tnz_short') ?? 'TNZ';
+        }
+        foreach($kolonky as $k => $l): ?>
         <div class="col-4 col-md-2">
             <label class="form-label-dvd"><?= $l ?></label>
             <input type="number" name="<?= $k ?>" id="<?= $k ?>" class="form-control" min="0" placeholder="0" 
@@ -451,10 +464,10 @@ window.SHIFT_REF_DATE = '<?= defined('SHIFT_REF_DATE_FILTRY') ? SHIFT_REF_DATE_F
     </div>
 </div>
 
-<!-- ── 06 NOK záznamy ── -->
+<!-- ── 05 NOK záznamy ── -->
 <div class="card-dvd mb-3" id="sec-nok">
     <div class="card-header-dvd" data-collapsible>
-        <span class="s-num">06</span>
+        <span class="s-num">05</span>
         <span class="s-title"><i class="bi bi-x-octagon me-2" style="color:var(--accent2)"></i><?= t('sec_nok') ?>
             <span id="nok-badge" style="display:none;background:rgba(255,107,53,.18);color:var(--accent2);font-family:var(--mono);font-size:.62rem;border-radius:3px;padding:.1rem .4rem;margin-left:.5rem"></span>
         </span>
@@ -469,10 +482,10 @@ window.SHIFT_REF_DATE = '<?= defined('SHIFT_REF_DATE_FILTRY') ? SHIFT_REF_DATE_F
     </div>
 </div>
 
-<!-- ── 05 Záznam prostojů ── -->
+<!-- ── 06 Záznam prostojů ── -->
 <div class="card-dvd mb-3" id="sec-tech">
     <div class="card-header-dvd" data-collapsible>
-        <span class="s-num">05</span>
+        <span class="s-num">06</span>
         <span class="s-title"><i class="bi bi-tools me-2" style="color:var(--accent2)"></i><?= t('sec_tech_prostoj') ?></span>
         <i class="bi bi-chevron-down s-toggle"></i>
     </div>
@@ -513,10 +526,10 @@ window.SHIFT_REF_DATE = '<?= defined('SHIFT_REF_DATE_FILTRY') ? SHIFT_REF_DATE_F
 </div>
 -->
 
-<!-- ── 08 OEE Preview ── -->
+<!-- ── 07 OEE Preview ── -->
 <div class="card-dvd mb-3" id="sec-oee">
     <div class="card-header-dvd" data-collapsible>
-        <span class="s-num">08</span>
+        <span class="s-num">07</span>
         <span class="s-title"><i class="bi bi-speedometer2 me-2" style="color:var(--accent)"></i><?= t('sec_oee') ?></span>
         <i class="bi bi-chevron-down s-toggle"></i>
     </div>
@@ -868,6 +881,8 @@ const pracovisteSuggest = <?= json_encode($pracovisteSuggest, JSON_UNESCAPED_UNI
 const pracovisteById = Object.fromEntries(pracovisteSuggest.map(item => [String(item.id), item]));
 const nokTemplateGroups = <?= json_encode($nokTemplateGroups, JSON_UNESCAPED_UNICODE) ?>;
 const nokAfoVisibilityMap = <?= json_encode($nokAfoMap, JSON_UNESCAPED_UNICODE) ?>;
+const nokOperatorAfoMap = <?= json_encode($nokOperatorAfoMap, JSON_UNESCAPED_UNICODE) ?>;
+const nokOperatorExcludedMap = <?= json_encode($nokOperatorExcludedMap, JSON_UNESCAPED_UNICODE) ?>;
 let activePracovisteSuggest = [...pracovisteSuggest];
 
 const prostojTypy = <?= json_encode(array_column($prostojTypy,'popis','kod'), JSON_UNESCAPED_UNICODE) ?>;
@@ -1157,17 +1172,61 @@ function renderNokGroups() {
             const kod = escapeHtml(item.kod || '');
             const popis = escapeHtml(item.popis || '');
             const val = nokMap[id] || '';
+            const hasSavedCount = Object.prototype.hasOwnProperty.call(nokMap, id) && Number(nokMap[id]) > 0;
+            const savedExcluded = Object.prototype.hasOwnProperty.call(nokOperatorExcludedMap, id) ? nokOperatorExcludedMap[id] : null;
+            const workplaceDefaults = nokOperatorAfoMap[String(document.getElementById('pracovisite_id')?.value || '')] || {};
+            const workplaceExcluded = workplaceDefaults[id] === true || workplaceDefaults[id] === 1 || workplaceDefaults[id] === '1';
+            const excludedByDefault = savedExcluded !== null
+                ? Number(savedExcluded) === 1
+                : (hasSavedCount ? false : workplaceExcluded);
+            const excludedValue = excludedByDefault ? '1' : '0';
             
             items.push(`<div class="nok-item col-12 col-md-6 col-xl-4" data-nok-id="${id}" style="padding-right: 3rem; padding-bottom: 0.5rem;">
                 <span class="nok-code">${kod}</span>
                 <label for="nok_${id}">${popis}</label>
                 <input type="number" name="nok[${id}]" id="nok_${id}" class="form-control nok-qty" min="0" max="9999" placeholder="0" value="${val}" onchange="updateNokBadge()">
+                <input type="hidden" name="nok_operator_excluded[${id}]" id="nok_operator_excluded_${id}" value="${excludedValue}">
+                <label class="d-flex align-items-center gap-2 mt-1" for="nok_operator_excluded_check_${id}" style="font-size:.72rem;color:var(--muted);cursor:pointer">
+                    <input type="checkbox" id="nok_operator_excluded_check_${id}" data-nok-id="${id}" ${excludedByDefault ? 'checked' : ''} onchange="syncNokOperatorExcluded(this)">
+                    <?= h(t('nok_operator_excluded')) ?>
+                </label>
             </div>`);
         });
     });
 
     container.innerHTML = items.join('');
     container.dataset.rendered = '1';
+}
+
+function syncNokOperatorExcluded(checkbox) {
+    const id = String(checkbox?.dataset.nokId || '');
+    const hidden = document.getElementById('nok_operator_excluded_' + id);
+    if (hidden) hidden.value = checkbox.checked ? '1' : '0';
+    calcOEE();
+}
+
+function applyNokOperatorDefaults(workplaceId) {
+    const workplaceMap = nokOperatorAfoMap[String(workplaceId || '')] || {};
+    document.querySelectorAll('#sec-nok .nok-item[data-nok-id]').forEach(row => {
+        const id = String(row.getAttribute('data-nok-id') || '');
+        const savedExcluded = Object.prototype.hasOwnProperty.call(nokOperatorExcludedMap, id) ? nokOperatorExcludedMap[id] : null;
+        const hasSavedCount = Object.prototype.hasOwnProperty.call(nokMap, id) && Number(nokMap[id]) > 0;
+        const defaultExcluded = workplaceMap[id] === true || workplaceMap[id] === 1 || workplaceMap[id] === '1';
+        const excluded = savedExcluded !== null ? Number(savedExcluded) === 1 : (hasSavedCount ? false : defaultExcluded);
+        const checkbox = document.getElementById('nok_operator_excluded_check_' + id);
+        const hidden = document.getElementById('nok_operator_excluded_' + id);
+        if (checkbox) checkbox.checked = excluded;
+        if (hidden) hidden.value = excluded ? '1' : '0';
+    });
+    calcOEE();
+}
+
+function getNokOperatorTotal() {
+    return [...document.querySelectorAll('.nok-qty')].reduce((total, input) => {
+        const id = input.id.replace('nok_', '');
+        const excluded = document.getElementById('nok_operator_excluded_check_' + id)?.checked === true;
+        return total + (excluded ? 0 : (parseInt(input.value, 10) || 0));
+    }, 0);
 }
 
 function loadPracovisteData(id) {
@@ -1180,6 +1239,7 @@ function loadPracovisteData(id) {
         const hidden = document.getElementById('pracovisite_id');
         if (hidden) hidden.value = '';
         applyNokVisibilityByAfo('', '');
+        applyNokOperatorDefaults('');
         return;
     }
     pwData = { zakaznik:selected.zakaznik, projekt:selected.projekt, verze:selected.verze,
@@ -1201,6 +1261,7 @@ function loadPracovisteData(id) {
     document.getElementById('d-norma').textContent       = pwData.norma ? pwData.norma.toFixed(4) : '—';
     document.getElementById('d-cycle').textContent       = pwData.cycle ? pwData.cycle.toFixed(4) : '—';
     applyNokVisibilityByAfo(String(selected.cisloId || ''), String(pwData.afo || ''));
+    applyNokOperatorDefaults(String(selected.cisloId || ''));
     
     // Nastavení pauzy pro VPD, ale pole zůstává odemčené pro ruční úpravu
     const pauzaInput = document.getElementById('pauza');
@@ -1419,11 +1480,11 @@ function calcCisty() {
 function calcKs() {
     const v = parseInt(document.getElementById('vyrobeno').value) || 0;
     const n = parseInt(document.getElementById('nokks').value) || 0;
-    const tech = parseInt(document.getElementById('tech').value) || 0;
-    const blok = parseInt(document.getElementById('blok').value) || 0;
-    const tnz = parseInt(document.getElementById('tnz').value) || 0;
+    const blok = parseInt(document.getElementById('blok')?.value) || 0;
     
-    const dobre = Math.max(0, v - n - tech - blok - tnz);
+    // Dobré = Vyrobeno - NOK - Blok
+    const dobre = Math.max(0, v - n - blok);
+    
     document.getElementById('disp-dobre').textContent = dobre.toLocaleString('cs-CZ');
     updateNokBadge();
 }
@@ -1455,9 +1516,9 @@ function calcProstoje() {
 function calcOEE() {
     const vyr = parseInt(document.getElementById('vyrobeno').value) || 0;
     const nok = parseInt(document.getElementById('nokks').value) || 0;
-    const tech = parseInt(document.getElementById('tech').value) || 0;
-    const blok = parseInt(document.getElementById('blok').value) || 0;
-    const tnz = parseInt(document.getElementById('tnz').value) || 0;
+    const nokOperator = getNokOperatorTotal();
+    const tech = parseInt(document.getElementById('tech')?.value) || 0;
+    const blok = parseInt(document.getElementById('blok')?.value) || 0;
     
     const prac = parseInt(document.getElementById('prac-doba').value) || 0;
     const pauza2 = parseInt(document.getElementById('pauza').value) || 0;
@@ -1484,8 +1545,9 @@ function calcOEE() {
         } else if (operacniCas === 0) {
             P = 0;
         }
+        // 3. KVALITA: srážíme NOK operátora a Tech
         if (vyr > 0) {
-            Q = Math.min(1.0, Math.max(0, (vyr - nok) / vyr));
+            Q = Math.min(1.0, Math.max(0, (vyr - (nokOperator + tech)) / vyr));
         } else {
             Q = 0;
         }
@@ -1505,19 +1567,20 @@ function calcOEE() {
     const st = document.getElementById('oee-status');
     if (OEE !== null) {
         const p2 = OEE * 100;
-        st.textContent = p2 >= 85 ? '✓ ' + window.LANG_TEXT.oee_status_above : (p2 >= 70 ? '⚠ ' + window.LANG_TEXT.oee_status_below : '✗ ' + window.LANG_TEXT.oee_status_far_below);
+        st.textContent = p2 >= 85 ? '✓ ' + (window.LANG_TEXT?.oee_status_above || 'Výborné') : (p2 >= 70 ? '⚠ ' + (window.LANG_TEXT?.oee_status_below || 'Slabé') : '✗ ' + (window.LANG_TEXT?.oee_status_far_below || 'Kritické'));
         st.style.color = p2 >= 85 ? 'var(--accent)' : (p2 >= 70 ? 'var(--warn)' : 'var(--accent2)');
     }
     
     const sl = document.getElementById('summary-lines');
     const row = (l, v, c) => `<div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:.12rem 0"><span style="color:var(--muted)">${l}</span><span class="mono" style="font-weight:600;color:${c||'var(--text)'}">${v}</span></div>`;
-    const dobre = Math.max(0, vyr - nok - tech - blok - tnz);
+    const dobre = Math.max(0, vyr - nok - blok);
 
-    sl.innerHTML = row(window.LANG_TEXT.summary_net_time, cisty + ' min') + 
-                   row(window.LANG_TEXT.summary_produced, vyr.toLocaleString()) + 
-                   row(window.LANG_TEXT.summary_nok, nok + ' ks', nok > 0 ? 'var(--accent2)' : 'var(--text)') + 
-                   row(window.LANG_TEXT.summary_ok, dobre.toLocaleString(), 'var(--accent)') + 
-                   row(window.LANG_TEXT.summary_oee, pct(OEE), OEE >= .85 ? 'var(--accent)' : (OEE >= .7 ? 'var(--warn)' : 'var(--accent2)'));
+    sl.innerHTML = row(window.LANG_TEXT?.summary_net_time || 'Čistý čas', cisty + ' min') + 
+                   row(window.LANG_TEXT?.summary_produced || 'Vyrobeno', vyr.toLocaleString()) + 
+                   row(window.LANG_TEXT?.summary_nok || 'Z toho NOK', nok + ' ks', nok > 0 ? 'var(--accent2)' : 'var(--text)') + 
+                   row(window.LANG_TEXT?.summary_operator_nok || 'Z toho Operátor NOK', nokOperator + ' ks', nokOperator > 0 ? 'var(--accent2)' : 'var(--text)') +
+                   row(window.LANG_TEXT?.summary_ok || 'Vyrobeno Dobře', dobre.toLocaleString(), 'var(--accent)') + 
+                   row(window.LANG_TEXT?.summary_oee || 'OEE Celkem', pct(OEE), OEE >= .85 ? 'var(--accent)' : (OEE >= .7 ? 'var(--warn)' : 'var(--accent2)'));
 }
 
 // ==========================================
@@ -1797,17 +1860,26 @@ function validateAllDowntimes() {
 // ==========================================
 function getNokSectionTotals() {
     const section04 = parseInt(document.getElementById('nokks')?.value, 10) || 0;
+    const tech = parseInt(document.getElementById('tech')?.value, 10) || 0;
     const section08 = [...document.querySelectorAll('.nok-qty')].reduce((a,e)=>a+(parseInt(e.value, 10)||0),0);
-    return { section04, section08, diff: section04 - section08 };
+    return {
+        section04,
+        section08,
+        tech,
+        diff: section04 - (section08 + tech),
+    };
 }
 
 function updateNokBadge() {
-    const { section04, section08, diff } = getNokSectionTotals();
+    const { section04, section08, tech, diff } = getNokSectionTotals();
     const b = document.getElementById('nok-badge');
     if (!b) return;
-    b.style.display = (section04 > 0 || section08 > 0) ? '' : 'none';
-    b.textContent = `${section08} / ${section04} ks`;
+
+    const vysvetleno = section08 + tech;
+    b.style.display = (section04 > 0 || vysvetleno > 0) ? '' : 'none';
+    b.textContent = `${vysvetleno} / ${section04} ks`;
     b.style.color = diff === 0 ? 'var(--accent)' : 'var(--accent2)';
+    calcOEE();
 }
 
 const nokMismatchModal = document.getElementById('nok-mismatch-modal');

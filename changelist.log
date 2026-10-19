@@ -1,0 +1,17 @@
+8.10.2026 úprava souboru admin/kt_report_all.php (úprava vizuálu) 								- Implementovano do v3.4
+9.10.2026 úprava souboru index.php (oprava vizuálu tiskové sestavy) 								- Implementovano do v3.4
+12.10.2026 úprava souboru index.php (Do celkových NOK kusů se nezapočítávaly Tech vady) 					- Implementovano do v3.4
+13.10.2026 úprava souboru save_zapis.php (Do celkových NOK kusů se nezapočítávaly Tech vady) 					- Implementovano do v3.4
+13.10.2026 úprava souboru admin/zapis_edit.php (Do celkových NOK kusů se nezapočítávaly Tech vady) 				- Implementovano do v3.4
+13.10.2026 úprava souboru admin/save_zapis_edit.php (Do celkových NOK kusů se nezapočítávaly Tech vady) 			- Implementovano do v3.4
+13.10.2026 úprava souboru admin/zapis_detail.php (Odebrání TNZ kusů, odebrání duplicitních položek (pracovník, pozice)  	- Implementovano do v3.4
+13.10.2026 úprava souboru index.php (Nelze zadat více NOK kusů než bylo vyrobeno) 						- Implementovano do v3.4
+15.10.2026 úprava souboru admin/vysledovka.php (Tištěná verze)
+15.10.2026 úprava souboru admin/zaznamy_pracovnici.php (Tištěná verze)
+15.10.2026 úprava souboru admin/oee.php (Tištěná verze)
+15.10.2026 úprava souboru admin/zaznamy.php (odstranění KT pro lepší zobrazení)
+19.10.2026 úprava souboru admin/zaznamy.php (Tištěná verze)
+
+
+TODO:
+Udělat tištěnou verzi pro admin/zaznamy.php

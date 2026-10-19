@@ -150,7 +150,7 @@ try {
             'produktivita' => in_array('1', array_map(static fn(array $row): string => (string)(int)($row['produktivita'] ?? 0), $rows), true) ? 1 : 0,
             'norma_ks_min' => pracovisteFirstFilled($rows, 'norma_ks_min'),
             'cyklus_min' => pracovisteFirstFilled($rows, 'cyklus_min'),
-                'typ' => in_array($mergedType, ['serie', 'filtry', 'vstrikovna', 'obe'], true) ? $mergedType : 'serie',
+            'typ' => in_array($mergedType, ['serie', 'filtry', 'vstrikovna', 'obe'], true) ? $mergedType : 'serie',
             'aktivni' => 1,
             'poznamka' => $mergedNote,
         ];

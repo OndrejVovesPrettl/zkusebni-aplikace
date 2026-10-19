@@ -9,7 +9,8 @@
  * Pravidla:
  * - synchronizace probiha podle interni_id (1. sloupec CSV)
  * - nejdrive se vsichni pracovnici deaktivuji (aktivni=0)
- * - existujici interni_id se aktualizuje (jmeno, smennost, aktivni=1)
+ * - existujici interni_id se aktualizuje podle aktivniho DB zaznamu (vcetne zachovani jeho role)
+ * - role existujicich pracovniku zustava beze zmeny; nove zaznamy pouziji DB default D
  * - chybejici interni_id se vlozi jako novy zaznam (aktivni=1)
  * - bez --force se pri nezmenenem mtime souboru synchronizace preskoci
  *
@@ -23,10 +24,12 @@
  */
 
 require_once dirname(__DIR__) . '/includes/config.php';
+ensurePracovniciClassColumn();
 
 define('IKOS_WORKERS_SOURCE_FILE', APP_ROOT . '/uploads/export_ikos.txt');
 define('IKOS_WORKERS_LOCK_FILE', UPLOAD_DIR . 'sync_ikos_workers.lock');
 define('IKOS_WORKERS_STATE_FILE', UPLOAD_DIR . 'sync_ikos_workers_state.json');
+define('IKOS_WORKERS_SYNC_VERSION', 3);
 
 function respondIkosWorkers(array $payload, int $status = 200): never
 {
@@ -76,13 +79,19 @@ function parseIkosWorkerLine(string $line): ?array
     $cols = str_getcsv($line, ';');
     $interniId = normalizeIkosValue($cols[0] ?? null);
     $jmeno = normalizeIkosValue($cols[1] ?? null);
-    $smennost = normalizeIkosValue($cols[2] ?? null);
+    $thirdValue = normalizeIkosValue($cols[2] ?? null);
+    $fourthValue = normalizeIkosValue($cols[3] ?? null);
+    $thirdDate = parseWorkerTerminationDate($thirdValue);
+    $fourthDate = parseWorkerTerminationDate($fourthValue);
+    $newColumnOrder = $thirdDate !== false && ($fourthDate === false || $fourthDate === null);
+    $smennost = $newColumnOrder ? $fourthValue : $thirdValue;
+    $datumUkonceni = $newColumnOrder ? $thirdDate : $fourthDate;
 
     if ($smennost === '0' || $smennost === '') {
         $smennost = null;
     }
 
-    if ($interniId === null || $interniId === '' || $jmeno === null || $jmeno === '') {
+    if ($interniId === null || $interniId === '' || $jmeno === null || $jmeno === '' || $datumUkonceni === false) {
         return null;
     }
 
@@ -90,7 +99,28 @@ function parseIkosWorkerLine(string $line): ?array
         'interni_id' => $interniId,
         'jmeno' => $jmeno,
         'smennost' => $smennost,
+        'datum_ukonceni' => $datumUkonceni,
     ];
+}
+
+function selectIkosExistingWorkersByInternalId(array $workers, ?string $today = null): array
+{
+    $today ??= date('Y-m-d');
+    $selected = [];
+    foreach ($workers as $worker) {
+        $interniId = trim((string)($worker['interni_id'] ?? ''));
+        if ($interniId === '') {
+            continue;
+        }
+
+        $current = $selected[$interniId] ?? null;
+        $workerActive = (string)($worker['datum_ukonceni'] ?? '') > $today;
+        $currentActive = $current !== null && (string)($current['datum_ukonceni'] ?? '') > $today;
+        if ($current === null || ($workerActive && !$currentActive)) {
+            $selected[$interniId] = $worker;
+        }
+    }
+    return $selected;
 }
 
 if (PHP_SAPI !== 'cli' && !canAdmin()) {
@@ -153,6 +183,7 @@ if (
     !$forceRun
     && $sourceFileMtime !== null
     && (int)($state['source_file_mtime'] ?? 0) === $sourceFileMtime
+    && (int)($state['sync_version'] ?? 0) === IKOS_WORKERS_SYNC_VERSION
 ) {
     $state['last_checked_at'] = date('c');
     $state['last_skip_reason'] = 'source_unchanged';
@@ -175,10 +206,10 @@ $inserted = 0;
 $updated = 0;
 $skippedInvalid = 0;
 $skippedDuplicateInFile = 0;
+$skippedInactive = 0;
 $errors = 0;
 $processedLines = 0;
 
-$seenInterniIds = [];
 $handle = fopen($sourceFile, 'rb');
 if ($handle === false) {
     @unlink(IKOS_WORKERS_LOCK_FILE);
@@ -189,7 +220,7 @@ if ($handle === false) {
     ], 500);
 }
 
-// First parse and deduplicate file rows, then apply refresh in one transaction.
+// Parse all rows before selecting current employees from duplicate ID groups.
 $rows = [];
 while (($line = fgets($handle)) !== false) {
     $processedLines++;
@@ -200,46 +231,52 @@ while (($line = fgets($handle)) !== false) {
         continue;
     }
 
-    $interniId = $parsed['interni_id'];
-    $jmeno = $parsed['jmeno'];
-    $smennost = $parsed['smennost'];
-
-    if (isset($seenInterniIds[$interniId])) {
-        $skippedDuplicateInFile++;
-        continue;
-    }
-    $seenInterniIds[$interniId] = true;
-
-    $rows[] = [
-        'interni_id' => $interniId,
-        'jmeno' => $jmeno,
-        'smennost' => $smennost,
-    ];
+    $rows[] = $parsed;
 }
 
 fclose($handle);
 
+$selection = selectActiveWorkerRowsByInternalId($rows);
+$rows = $selection['rows'];
+$skippedInactive = $selection['skipped_inactive'];
+$skippedDuplicateInFile = $selection['skipped_duplicate_in_file'];
+if ($rows === []) {
+    @unlink(IKOS_WORKERS_LOCK_FILE);
+    respondIkosWorkers([
+        'ok' => false,
+        'error' => 'Zdrojovy soubor neobsahuje zadneho aktualne zamestnaneho pracovnika; databaze nebyla zmenena.',
+        'source_file' => $sourceFile,
+        'source_file_mtime' => $sourceFileMtime,
+        'source_file_mtime_iso' => $sourceFileMtime ? date('c', $sourceFileMtime) : null,
+        'processed_lines' => $processedLines,
+        'skipped_duplicate_in_file' => $skippedDuplicateInFile,
+        'skipped_inactive' => $skippedInactive,
+        'skipped_invalid' => $skippedInvalid,
+    ], 422);
+}
+
 try {
     db()->beginTransaction();
 
+    $existingWorkers = db_all('SELECT id, interni_id, datum_ukonceni, `role` FROM pracovnici ORDER BY id');
+    $existingByInterniId = selectIkosExistingWorkersByInternalId($existingWorkers);
     db()->exec('UPDATE pracovnici SET aktivni = 0');
 
-    $selectByInterniId = db()->prepare('SELECT id FROM pracovnici WHERE interni_id = ? LIMIT 1');
-    $updateStmt = db()->prepare('UPDATE pracovnici SET jmeno = ?, smennost = ?, aktivni = 1 WHERE interni_id = ?');
-    $insertStmt = db()->prepare('INSERT INTO pracovnici (interni_id, jmeno, smennost, aktivni) VALUES (?, ?, ?, 1)');
+    $updateStmt = db()->prepare('UPDATE pracovnici SET jmeno = ?, smennost = ?, datum_ukonceni = ?, `role` = ?, aktivni = 1 WHERE id = ?');
+    $insertStmt = db()->prepare('INSERT INTO pracovnici (interni_id, jmeno, smennost, datum_ukonceni, aktivni) VALUES (?, ?, ?, ?, 1)');
 
     foreach ($rows as $row) {
         $interniId = $row['interni_id'];
         $jmeno = $row['jmeno'];
         $smennost = $row['smennost'];
+        $datumUkonceni = $row['datum_ukonceni'];
 
-        $selectByInterniId->execute([$interniId]);
-        $existingId = $selectByInterniId->fetchColumn();
-        if ($existingId !== false) {
-            $updateStmt->execute([$jmeno, $smennost, $interniId]);
+        $existingWorker = $existingByInterniId[$interniId] ?? null;
+        if ($existingWorker !== null) {
+            $updateStmt->execute([$jmeno, $smennost, $datumUkonceni, $existingWorker['role'], $existingWorker['id']]);
             $updated++;
         } else {
-            $insertStmt->execute([$interniId, $jmeno, $smennost]);
+            $insertStmt->execute([$interniId, $jmeno, $smennost, $datumUkonceni]);
             $inserted++;
         }
     }
@@ -259,6 +296,7 @@ try {
         'source_file_mtime_iso' => $sourceFileMtime ? date('c', $sourceFileMtime) : null,
         'processed_lines' => $processedLines,
         'skipped_duplicate_in_file' => $skippedDuplicateInFile,
+        'skipped_inactive' => $skippedInactive,
         'skipped_invalid' => $skippedInvalid,
     ], 500);
 }
@@ -276,6 +314,7 @@ $result = [
     'updated' => $updated,
     'inserted_or_updated' => $inserted + $updated,
     'skipped_duplicate_in_file' => $skippedDuplicateInFile,
+    'skipped_inactive' => $skippedInactive,
     'skipped_invalid' => $skippedInvalid,
     'errors' => $errors,
     'duration_ms' => $durationMs,
@@ -284,6 +323,7 @@ $result = [
 ];
 
 $state = [
+    'sync_version' => IKOS_WORKERS_SYNC_VERSION,
     'source_file' => $sourceFile,
     'source_file_mtime' => $sourceFileMtime,
     'source_file_mtime_iso' => $sourceFileMtime ? date('c', $sourceFileMtime) : null,
@@ -296,6 +336,7 @@ $state = [
         'updated' => $updated,
         'inserted_or_updated' => $inserted + $updated,
         'skipped_duplicate_in_file' => $skippedDuplicateInFile,
+        'skipped_inactive' => $skippedInactive,
         'skipped_invalid' => $skippedInvalid,
         'errors' => $errors,
         'duration_ms' => $durationMs,

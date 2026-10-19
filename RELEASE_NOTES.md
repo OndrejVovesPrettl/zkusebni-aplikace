@@ -1,5 +1,80 @@
 # Release Notes
 
+## v5.6.6 (2026-10-06)
+
+### NOK matice
+- Modal umožňuje vyhledat a vybrat až pět pracovišť; zobrazí se jen odpovídající sloupce matice.
+- Uložení zachovává nastavení nevybraných pracovišť a ověřuje platnost i maximální počet vybraných AFO.
+- Popisová část tabulky je kompaktnější a AFO sloupce využívají dostupnou šířku.
+- Opraveno hledání pracovišť; modal si při filtrování zachovává výšku.
+- Tlačítko Přestavět z Excelu je skryté, jeho serverová funkce zůstává zachována.
+
+## v5.6.5 (2026-10-06)
+
+### Formulář a tisk pracoviště
+- Při změně nebo zrušení výběru pracoviště se vymažou navázaná data a skryté ID.
+- Příprava tisku ověřuje platné ID pracoviště; bez platného výběru nevloží do tiskopisu staré identifikační údaje.
+- NOK položky bez odpovídající AFO mapy se nezobrazí.
+
+### Přehledy
+- Filtry přehledu záznamů se obnoví po návratu z detailu, editace nebo mazání; tlačítko Reset uložené filtry smaže.
+- Detail pracovníka používá responzivnější rozložení a zalamuje dlouhé údaje pracoviště.
+
+## v5.6.4 (2026-10-05)
+
+### Pracovníci a import
+- Přidáno datum ukončení pracovního poměru, filtr **Vše / Ukončeno / Aktivní** a stavový badge bez zobrazení data.
+- Výběr pracovníka v hlavním formuláři zobrazuje pouze ručně aktivní pracovníky s datem ukončení v budoucnosti.
+- CSV import pracovníků podporuje čtvrtý sloupec `ukonceni`; při duplicitním `interni_id` se zobrazí modal s kandidáty a výběrem položky.
+- Duplicitní skupiny, kde mají všichni kandidáti datum ukončení před dneškem, se automaticky přeskočí.
+- Přidána nezávislá filtrace směnnosti a třídy a řazení sloupců cyklem ASC / DESC / vypnuto.
+- Automatická i ruční synchronizace ukládají datum ukončení a zachovávají importovanou třídu.
+
+## v5.6.3 (2026-10-01)
+
+### Role-based print and manual updates
+- Traceability Lineleader (`writer`) can use the main form in read-only mode to select a production type/workplace and print an A4 form; saving production data remains unavailable.
+- The role simulator now returns through POST/Redirect/GET after switching roles, and the menu follows the selected role's permissions.
+- Fixed an OEE Top NOK query failure caused by incompatible MySQL collations.
+- Updated the in-app and Markdown manuals to match current roles, print behavior, OEE/NOK calculations, user administration and simulator behavior.
+
+## v5.6.2 (2026-09-30)
+
+### FSK print a simulátor rolí
+- Přidána výhradní role `fsk_print` s read-only tiskovým režimem hlavního formuláře.
+- FSK může vybrat pracoviště a výrobní okruh, vytisknout vyplněnou i prázdnou A4 šablonu a změnit své iniciační heslo.
+- FSK má vlastní omezené sidebar menu s odkazem Nový zápis, profilem, jazykem, tématem, kompaktním režimem a odhlášením.
+- Přidán simulátor rolí dostupný pouze skutečnému superadminovi; používá stejné navigační permission podmínky jako reálná role.
+- Během simulace zůstává dostupný návrat do `scripts.php`, zatímco skripty, release a deploy akce jsou serverově blokované.
+- FSK přístup k ostatním routám je chráněn centrálním route guardem; povolen je pouze index, profil, logout a řízení simulace.
+
+## v5.6.0 (2026-09-30)
+
+### Per-workplace NOK classification
+- NOK exclusion from operator scrap/OEE is configured for each workplace (AFO) and NOK code in the NOK matrix.
+- The selected workplace default is loaded into both the new-entry and edit forms; each record can override it per NOK code.
+- Physical NOK remains in total production figures. Operator NOK is stored separately and drives operator scrap and quality Q/OEE.
+- Worker reports, monthly results, record lists/details and the OEE Top NOK widget show the two counts separately.
+- NOK matrix Excel rebuild/import preserves per-AFO operator defaults. New cells default to counting NOK against the operator.
+- Existing records without an explicit operator value retain the legacy behavior and count all NOK against the operator.
+
+## v5.5.0 (2026-09-29)
+
+### Výsledovka a OEE
+- Přidán měsíční přehled výsledovky operátorů s filtrováním, řazením a exportem do CSV.
+- OEE přehledy používají sjednocenou váženou logiku; výkon je omezen na 150 % a celkové OEE na 100 %.
+- Souhrnné statistiky započítávají sdílené výrobní záznamy pouze jednou.
+- Detail výrobního záznamu zobrazuje skutečné číselné ID pracoviště.
+
+### Checklist seřizovače
+- Přidán denní checklist seřizovače, editor záznamů a správa katalogu úkonů podle projektu.
+- Katalog lze naplnit z Excelové předlohy; kontrolní položky podporují rozdílná pravidla pro projekty Gen3 a 48W.
+
+### Formulář a správa
+- Synchronizovány změny formuláře, editace výrobních záznamů, správy pracovišť a importních pomocných funkcí.
+- Runtime inicializace rozšiřuje databázový enum typů o `vstrikovna` a přiřadí tento typ určeným pracovištím i jejich výrobním záznamům.
+- Zachována lokální URL testovací instalace `v3.4`; produkční URL se tímto releasem nemění.
+
 ## v5.4.0 (2026-08-31)
 
 ### Stabilní release a finalizace verzování

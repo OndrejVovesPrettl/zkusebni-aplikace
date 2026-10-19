@@ -1,4 +1,3 @@
-*.sql
 .venv/
 .env
 uploads/tmp/*

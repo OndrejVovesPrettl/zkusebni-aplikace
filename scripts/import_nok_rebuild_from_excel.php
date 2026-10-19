@@ -168,6 +168,14 @@ foreach ($dataRows as $r) {
     ];
 }
 
+$existingOperatorDefaults = [];
+foreach (db_all('SELECT afo, nok_kod_id, operator_excluded_default FROM nok_matrix_afo') as $row) {
+    $existingOperatorDefaults[(string)$row['afo'] . '|' . (int)$row['nok_kod_id']] = (int)$row['operator_excluded_default'];
+}
+foreach ($matrixSeen as $matrixKey => &$matrixRow) {
+    $matrixRow['operator_excluded_default'] = $existingOperatorDefaults[$matrixKey] ?? 0;
+}
+unset($matrixRow);
 $matrixRows = array_values($matrixSeen);
 
 $result = [
@@ -217,12 +225,12 @@ try {
     $result['purged_matrix'] = (int)$pdo->exec('DELETE FROM nok_matrix_afo');
 
     $insMatrix = $pdo->prepare(
-        'INSERT INTO nok_matrix_afo (afo, nok_kod_id, zobrazit) VALUES (?, ?, ?) '
-        . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), updated_at=NOW()'
+        'INSERT INTO nok_matrix_afo (afo, nok_kod_id, zobrazit, operator_excluded_default) VALUES (?, ?, ?, ?) '
+        . 'ON DUPLICATE KEY UPDATE zobrazit=VALUES(zobrazit), operator_excluded_default=VALUES(operator_excluded_default), updated_at=NOW()'
     );
 
     foreach ($matrixRows as $m) {
-        $insMatrix->execute([(string)$m['afo'], (int)$m['nok_kod_id'], (int)$m['zobrazit']]);
+        $insMatrix->execute([(string)$m['afo'], (int)$m['nok_kod_id'], (int)$m['zobrazit'], (int)$m['operator_excluded_default']]);
         $result['upserted_matrix']++;
     }
 

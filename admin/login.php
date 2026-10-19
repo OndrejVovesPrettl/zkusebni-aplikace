@@ -34,6 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['admin_user_id']   = $user['id'];
             $_SESSION['admin_role']      = $primaryRole;
             $_SESSION['admin_roles']     = $userRoles;
+            unset($_SESSION['admin_actual_roles'], $_SESSION['role_simulation_roles']);
             logAction('LOGIN', 'user', $user['id'], [], ['username' => $user['username'], 'role' => $primaryRole, 'roles' => implode(',', $userRoles)]);
             // Pokud je první přihlášení (password_changed_at je NULL), přesměrovat na profile.php
             if (!$user['password_changed_at']) {

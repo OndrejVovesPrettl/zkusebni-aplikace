@@ -82,15 +82,42 @@ try {
 
     $vyrobeno  = max(0,(int)post('vyrobeno_ks',0));
     $nokKs     = max(0,(int)post('nok_ks',0));
+    
+    // --- ZÁCHRANNÁ BRZDA: NOK nesmí být větší než Vyrobeno ---
+    if ($nokKs > $vyrobeno) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        jsonOut(['ok'=>false,'error'=>'Nelze zadat více vadných kusů (NOK) než celkem vyrobených.'], 422);
+    }
+
+    $nokCounts = [];
+    foreach (($_POST['nok'] ?? []) as $nokId => $quantity) {
+        $nokCounts[(string)(int)$nokId] = max(0, (int)$quantity);
+    }
+    $nokOperatorExcluded = [];
+    foreach (($_POST['nok_operator_excluded'] ?? []) as $nokId => $excluded) {
+        $nokOperatorExcluded[(string)(int)$nokId] = (int)$excluded === 1 ? 1 : 0;
+    }
+    $nokOperatorDefaultsByAfo = getNokAfoOperatorExclusionMap();
+    $nokDefaults = $pw ? ($nokOperatorDefaultsByAfo[(string)$pw['cislo_id']] ?? []) : [];
+    $nokOperatorKs = calculateNokOperatorQuantity(
+        $nokCounts,
+        $nokOperatorExcluded,
+        $nokDefaults
+    );
     $kPos      = max(0,(int)post('k_posouzeni',0));
-    $dobre     = max(0,$vyrobeno - $nokKs);
+    $tech      = max(0, (int)post('tech', 0));
+    $blok      = max(0, (int)post('blok', 0));
+    $tnz       = max(0, (int)post('tnz', 0));
+    
+    // Dobré kusy: Vyrobeno - NOK celkem (zde už je Tech i TNZ) - Blok
+    $dobre     = max(0, $vyrobeno - $nokKs - $blok);
+    
     $pracDoba  = post('pracovni_doba_min')!=='' ? (int)post('pracovni_doba_min') : null;
     $pauza     = max(0,(int)post('pauza_min',0));
     $prestas   = max(0,(int)post('prestas_min',0));
     $cistyCas  = post('cisty_cas_min')!=='' ? (int)post('cisty_cas_min') : null;
-    $tech      = max(0, (int)post('tech', 0));
-    $blok      = max(0, (int)post('blok', 0));
-    $tnz       = max(0, (int)post('tnz', 0));
     // Centrálně zadané prostoje z řádků
     $prostoje = [];
     foreach (($_POST['prostoje'] ?? []) as $rawProstoj) {
@@ -162,9 +189,9 @@ try {
             $oeeP = 0.0;
         }
 
-        // C) Kvalita = Dobré ks / Vyrobené ks
+        // C) Kvalita = Srážíme NOK operátora a Tech kusy
         if ($vyrobeno > 0) {
-            $oeeQ = min(1.0, max(0.0, ($vyrobeno - $nokKs) / $vyrobeno));
+            $oeeQ = min(1.0, max(0.0, ($vyrobeno - ($nokOperatorKs + $tech)) / $vyrobeno));
         }
 
         // D) Celkové OEE
@@ -233,7 +260,7 @@ try {
          pracovni_doba_min,prestas_min,pauza_min,jmeno,pracovni_pozice,
          zakaznik,projekt,verze,kod_pracovisite,nazev_pracovisite,nazev_dilu,
          sap_cislo,nakladove_stredisko,final_typ,
-         vyrobeno_ks,nok_ks,k_posouzeni,vyrobeno_dobre_ks,cisty_cas_min,
+         vyrobeno_ks,nok_ks,nok_operator_ks,k_posouzeni,vyrobeno_dobre_ks,cisty_cas_min,
          oee_dostupnost,oee_vykon,oee_kvalita,oee_procent,
          norma_ks,cycle_time_min,tech,blok,tnz,
          poznamky,zapsal,poznamka_zapisujiciho)
@@ -241,7 +268,7 @@ try {
         (:typ,:prac_id,:cw,:datum,:rok,:mesic,:smena,:skupina,:cas_pr,:cas_od,
          :prac_doba,:prestas,:pauza,:jmeno,:pozice,
          :zakaznik,:projekt,:verze,:kp,:np,:nd,:sap,:ns,:final,
-         :vyr,:nok,:pos,:dobre,:cisty,
+         :vyr,:nok,:nok_operator,:pos,:dobre,:cisty,
          :oee_a,:oee_p,:oee_q,:oee,
          :norma,:cycle,:tech,:blok,:tnz,
          :pozn,:zapsal,:pozn_zap)");
@@ -257,7 +284,7 @@ try {
         ':np'=>$pw['nazev_pracovisite']??null,':nd'=>$pw['nazev_dilu']??null,
         ':sap'=>$pw['sap_cislo']??null,':ns'=>$pw['nakladove_stredisko']??null,
         ':final'=>$pw['oznaceni']??null,
-        ':vyr'=>$vyrobeno,':nok'=>$nokKs,':pos'=>$kPos,':dobre'=>$dobre,':cisty'=>$cistyCas,
+        ':vyr'=>$vyrobeno,':nok'=>$nokKs,':nok_operator'=>$nokOperatorKs,':pos'=>$kPos,':dobre'=>$dobre,':cisty'=>$cistyCas,
         ':oee_a'=>$oeeA,':oee_p'=>$oeeP,':oee_q'=>$oeeQ,':oee'=>$oeeTotal,
         ':norma'=>$normaKs,':cycle'=>$cyclMin,
         ':tech'=>$tech, ':blok'=>$blok, ':tnz'=>$tnz,
@@ -284,17 +311,22 @@ try {
     foreach (($_POST['nok'] ?? []) as $pocetRaw) {
         $nokItemsTotal += max(0, (int)$pocetRaw);
     }
-    if ($nokItemsTotal !== $nokKs) {
+    
+    // Do vysvětlených kusů přičítáme Tech
+    $vysvetleno = $nokItemsTotal + $tech;
+    
+    if ($vysvetleno !== $nokKs) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
-        jsonOut(['ok'=>false,'error'=>t('nok_mismatch') . " ({$nokItemsTotal}/{$nokKs})"], 422);
+        jsonOut(['ok'=>false,'error'=>t('nok_mismatch') . " ({$vysvetleno}/{$nokKs})"], 422);
     }
 
-    $nokStmt = $pdo->prepare('INSERT INTO zapis_nok (zapis_id,nok_kod_id,pocet) VALUES (?,?,?) ON DUPLICATE KEY UPDATE pocet=pocet+VALUES(pocet)');
-    foreach(($_POST['nok']??[]) as $kodId=>$pocet) {
+    $nokStmt = $pdo->prepare('INSERT INTO zapis_nok (zapis_id,nok_kod_id,pocet,operator_excluded) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE pocet=pocet+VALUES(pocet), operator_excluded=VALUES(operator_excluded)');
+    foreach($nokCounts as $kodId=>$pocet) {
         $pocet=(int)$pocet; if($pocet<=0) continue;
-        $nokStmt->execute([$zapisId,(int)$kodId,$pocet]);
+        $excluded = $nokOperatorExcluded[(string)$kodId] ?? $nokDefaults[(string)$kodId] ?? 0;
+        $nokStmt->execute([$zapisId,(int)$kodId,$pocet,(int)$excluded === 1 ? 1 : 0]);
     }
 
     // Hodinové sledování

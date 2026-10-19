@@ -1,9 +1,13 @@
 <?php
 require_once dirname(__DIR__) . '/includes/config.php';
-requireSuperAdmin();
+requireActualSuperAdmin();
 
 $pageTitle = t('scripts_title');
 $activePage = 'scripts';
+$simulationActive = isRoleSimulationActive();
+$simulatedRoles = getSimulatedRoles();
+$simulationRoleOptions = APP_ALLOWED_USER_ROLES;
+$simulationResult = null;
 
 function findMysqlCliPath(): ?string {
     $candidates = [
@@ -215,7 +219,20 @@ $gitBinary = findGitCliPath();
 $availableReleaseTags = $gitBinary !== null ? getReleaseTags($gitBinary) : [];
 $defaultReleaseTag = 'v' . APP_VERSION;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'create_release_tag') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'stop_role_simulation') {
+    if (!verifyCsrfToken(post('_csrf'))) { http_response_code(403); die('CSRF'); }
+    stopRoleSimulation();
+    redirect(APP_URL . '/admin/scripts.php?simulation=stopped');
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'start_role_simulation') {
+    if (!verifyCsrfToken(post('_csrf'))) { http_response_code(403); die('CSRF'); }
+    $simulationRole = strtolower(trim((string)post('simulation_role')));
+    if (!in_array($simulationRole, $simulationRoleOptions, true)) {
+        $simulationResult = ['ok' => false, 'message' => t('scripts_simulation_invalid_role')];
+    } else {
+        startRoleSimulation([$simulationRole]);
+        redirect(APP_URL . '/admin/scripts.php?simulation=started');
+    }
+} elseif (!$simulationActive && $_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'create_release_tag') {
     if (!verifyCsrfToken(post('_csrf'))) { http_response_code(403); die('CSRF'); }
     $newTag = trim((string)post('release_tag_name'));
 
@@ -266,7 +283,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'create_release_
             }
         }
     }
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'run_script') {
+} elseif (!$simulationActive && $_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'run_script') {
     if (!verifyCsrfToken(post('_csrf'))) { http_response_code(403); die('CSRF'); }
     $scriptKey = (string)post('script_key');
     if (isset($scripts[$scriptKey])) {
@@ -322,7 +339,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'create_release_
     } else {
         $runResult = ['ok' => false, 'title' => t('scripts_unknown_script'), 'output' => t('scripts_unknown_script_key')];
     }
-} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'deploy_release') {
+} elseif (!$simulationActive && $_SERVER['REQUEST_METHOD'] === 'POST' && post('action') === 'deploy_release') {
     if (!verifyCsrfToken(post('_csrf'))) { http_response_code(403); die('CSRF'); }
     $selectedTag = trim((string)post('release_tag'));
 
@@ -425,6 +442,47 @@ require APP_ROOT . '/includes/layout.php';
 </div>
 
 <div class="content">
+    <div class="card-dvd mb-3">
+        <div class="card-header-dvd">
+            <span class="s-num">RBAC</span>
+            <span class="s-title"><?= t('scripts_simulation_title') ?></span>
+        </div>
+        <div class="card-body-dvd">
+            <div style="font-size:.82rem;color:var(--muted);margin-bottom:.75rem"><?= t('scripts_simulation_intro') ?></div>
+            <?php if ($simulationActive): ?>
+                <div style="font-size:.82rem;color:var(--warn);margin-bottom:.75rem">
+                    <?= t('scripts_simulation_active') ?>:
+                    <strong><?= h(t('role_display_' . ($simulatedRoles[0] ?? 'read'))) ?></strong>
+                </div>
+                <form method="post">
+                    <input type="hidden" name="action" value="stop_role_simulation">
+                    <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+                    <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-arrow-counterclockwise me-1"></i><?= t('scripts_simulation_stop') ?></button>
+                </form>
+            <?php else: ?>
+                <form method="post" class="d-flex flex-column flex-lg-row gap-2 align-items-lg-end">
+                    <input type="hidden" name="action" value="start_role_simulation">
+                    <input type="hidden" name="_csrf" value="<?= h(generateCsrfToken()) ?>">
+                    <div style="min-width:260px;max-width:420px;width:100%">
+                        <label for="simulation_role" style="font-size:.82rem;color:var(--muted)"><?= t('scripts_simulation_role_label') ?></label>
+                        <select id="simulation_role" name="simulation_role" class="form-control" required>
+                            <?php foreach ($simulationRoleOptions as $role): ?>
+                                <option value="<?= h($role) ?>"><?= h(t('role_display_' . $role)) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn-dvd btn-dvd-sm"><i class="bi bi-person-gear me-1"></i><?= t('scripts_simulation_start') ?></button>
+                </form>
+            <?php endif; ?>
+            <?php if ($simulationResult !== null): ?>
+                <div style="margin-top:.75rem;font-size:.82rem;color:<?= $simulationResult['ok'] ? 'var(--success)' : 'var(--danger)' ?>">
+                    <?= h($simulationResult['message']) ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <?php if (!$simulationActive): ?>
     <div class="card-dvd mb-3">
         <div class="card-body-dvd">
             <div style="font-size:.84rem;color:var(--muted)"><?= t('scripts_intro') ?></div>
@@ -565,6 +623,7 @@ require APP_ROOT . '/includes/layout.php';
         </div>
         <?php endforeach; ?>
     </div>
+    <?php endif; ?>
 </div>
 
 <?php require APP_ROOT . '/includes/layout_end.php'; ?>

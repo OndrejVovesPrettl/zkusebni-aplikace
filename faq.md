@@ -38,5 +38,25 @@ V menu otevřete Správa → DVD → Směny. Stránka `admin/smeny.php` umožňu
 ## Jak změním jazyk na traceability terminálu?
 Naskenujte příkaz `en`, `cz` nebo `ua` přímo čtečkou. Jazyk se přepne okamžitě bez nutnosti klikat na UI.
 
-## Co obsahuje release v5.4.0?
-Release `v5.4.0` je finální stabilní release pro aktuální stav aplikace, včetně aktualizovaného verzování, dokumentace a potvrzení nulové výroby v hlavním formuláři.
+## Co obsahuje release v5.6.6?
+
+Editor NOK matice umožňuje vyhledat a vybrat až pět pracovišť. Načítá pouze jejich AFO sloupce a změny uloží jen pro vybraná pracoviště; ostatní nastavení zachová.
+
+## Co obsahoval release v5.6.5?
+
+Release `v5.6.5` bezpečně ruší stará data při změně pracoviště a před tiskem ověřuje jeho platný výběr. Přidává paměť filtrů v přehledu záznamů, jejich vymazání tlačítkem Reset a responzivnější detail pracovníka.
+
+## Co obsahoval release v5.6.4?
+
+Release `v5.6.4` přidává do číselníku pracovníků datum ukončení, stavové a sloupcové filtry, selecty směnnosti/třídy, řazení ASC/DESC/vypnuto a výběrový modal pro duplicity CSV. Hlavní formulář nabízí pouze ručně aktivní pracovníky s datem ukončení v budoucnosti.
+
+## Co obsahoval release v5.6.3?
+
+Release `v5.6.3` přidává read-only tiskový režim pro Traceability Lineleadera (`writer`), stabilnější přepínání simulovaných rolí, opravu OEE Top NOK collation a aktualizovaný uživatelský manuál.
+
+## Co obsahoval release v5.6.2?
+
+Release `v5.6.2` přidává výhradní roli `fsk_print` s tiskovým režimem, omezeným sidebar menu a možností změny iniciačního hesla. Superadmin může v `admin/scripts.php` simulovat libovolnou roli a vrátit se zpět bez odhlášení.
+
+## Co obsahoval release v5.6.0?
+Release `v5.6.0` umožňuje nastavit vyloučení NOK z operátorského Scrap/OEE pro každé pracoviště a NOK kód zvlášť. Výchozí stav je v NOK/AFO matici a v konkrétním zápisu jej lze změnit; celkový fyzický NOK zůstává zachován.

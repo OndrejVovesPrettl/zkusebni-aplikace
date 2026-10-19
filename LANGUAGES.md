@@ -1,10 +1,15 @@
 # 🌍 Nový Jazykový Systém – Pokyny
 
-## Stav dokumentace (v5.4.0)
+## Stav dokumentace (v5.6.6)
 
-- Release `v5.4.0` aktualizuje verzi aplikace, release metadata a dokumentaci pro novou produkční verzi; i18n workflow a klíče se tímto releasem nemění.
+- Popisek pole pracovníka Role používá překladový klíč `worker_role` ve všech jazykových souborech; CSV role je volitelné a při vynechání má hodnotu `D`.
+- Samotný release `v5.6.6` nové překladové klíče nepřidával.
+- Release `v5.6.5` nepřidává nové překladové klíče; jazykové soubory zůstávají beze změny.
+- Release `v5.6.4` přidává překlady pracovního stavu, data ukončení a review modalu duplicit do `lang/cs.php`, `lang/en.php` a `lang/uk.php`.
+- Překlady role FSK, simulátoru oprávnění a tiskového režimu z předchozích verzí zůstávají zachovány.
+- Texty role-based manuálu se načítají přes prefixy `manual_guide_*`; print-only role mají samostatnou sadu textů pro výběr okruhu, pracoviště a tisk.
 
-- Dokumentace odpovídá stavu release `v5.0.7`.
+- Dokumentace odpovídá aktuálnímu stavu aplikace `v5.6.6`.
 - Pro sjednocený report `Týdenní výroba` používej klíč `kt_report_all_title`.
 - V češtině je hodnota `Týdenní výroba`, v angličtině `Weekly production`, v ukrajinštině `Тижневе виробництво`.
 - Pole pro kalendářní týden používá klíč `cw_label` (zobrazení `KT`).

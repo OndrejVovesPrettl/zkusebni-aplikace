@@ -139,6 +139,31 @@ function serizovacEnsureChecklistTables(): bool
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
 
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS serizovac_checklist_nok_actions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                checklist_id INT NOT NULL,
+                action_text VARCHAR(500) NULL,
+                resolve_date VARCHAR(50) NULL,
+                person_signature VARCHAR(255) NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_serizovac_nok_checklist (checklist_id),
+                CONSTRAINT fk_serizovac_nok_checklist FOREIGN KEY (checklist_id) REFERENCES serizovac_checklists(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+
+        db()->exec(
+            'CREATE TABLE IF NOT EXISTS serizovac_checklist_glue_weights (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                checklist_id INT NOT NULL,
+                workplace VARCHAR(255) NULL,
+                value_text VARCHAR(255) NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_serizovac_glue_checklist (checklist_id),
+                CONSTRAINT fk_serizovac_glue_checklist FOREIGN KEY (checklist_id) REFERENCES serizovac_checklists(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+        );
+
         $checked = true;
     } catch (Throwable $e) {
         error_log('Serizovac checklist tables init failed: ' . $e->getMessage());

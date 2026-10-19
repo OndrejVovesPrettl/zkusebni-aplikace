@@ -5,6 +5,7 @@ $pageTitle ??= t('app_name');
 $activePage ??= '';
 $lang = $_SESSION['lang'] ?? 'cs';
 $baseUrl = APP_URL;
+$showSidebar = true;
 $mainCssPath = __DIR__ . '/../assets/css/main.css';
 $mainCssVersion = is_file($mainCssPath) ? (string)filemtime($mainCssPath) : APP_VERSION;
 $sidebarSectionsState = isLoggedIn() ? getCurrentUserSidebarSectionsState() : [];
@@ -55,8 +56,9 @@ window.DVD_APP = Object.assign(window.DVD_APP || {}, <?= json_encode($appClientC
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <link rel="stylesheet" href="<?= $baseUrl ?>/assets/css/main.css?v=<?= urlencode($mainCssVersion) ?>">
 </head>
-<body>
+<body class="<?= isPrintOnlyRole() ? 'fsk-print-mode' : '' ?>">
 
+<?php if ($showSidebar): ?>
 <!-- Sidebar -->
 <aside class="sidebar" id="sidebar">
 <div class="sidebar-brand" style="text-align:center;">
@@ -84,13 +86,17 @@ echo $role === 'superadmin' ? t('role_display_superadmin') :
 	($role === 'serizovac' ? t('role_display_serizovac') :
 	($role === 'rework_admin' ? t('role_display_rework_admin') : 
      ($role === 'rework' ? t('role_display_rework') : 
-	t('role_display_read')))))))));
+	($role === 'fsk_print' ? t('role_display_fsk_print') : t('role_display_read'))))))))));
 ?>
 </div>
 <?php endif; ?>
 </div>
 <nav>
 <?php if (isLoggedIn()): ?>
+<?php if (isPrintOnlyRole()): ?>
+<div class="nav-section">DVD</div>
+<div class="nav-item"><a href="<?= $baseUrl ?>/index.php" class="<?= $activePage==='form'?'active':'' ?>"><i class="bi bi-pencil-square"></i><?= t('nav_form') ?></a></div>
+<?php endif; ?>
 <?php if ((canWrite() || (hasAnyRole(['superadmin', 'admin']) && !hasOnlyRole('rework')))): ?>
 <div class="nav-section">DVD</div>
 <?php if (canWrite()): ?>
@@ -100,7 +106,9 @@ echo $role === 'superadmin' ? t('role_display_superadmin') :
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/zaznamy.php" class="<?= $activePage==='zaznamy'?'active':'' ?>"><i class="bi bi-table"></i><?= t('nav_records') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/zaznamy_pracovnici.php" class="<?= $activePage==='zaznamy_pracovnici'?'active':'' ?>"><i class="bi bi-people"></i><?= t('nav_workers') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/oee.php" class="<?= $activePage==='oee'?'active':'' ?>"><i class="bi bi-speedometer2"></i><?= t('nav_oee') ?></a></div>
+<?php if (isSuperAdmin()): ?>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/vysledovka.php" class="<?= $activePage==='vysledovka'?'active':'' ?>"><i class="bi bi-bar-chart-line"></i>Výsledovka</a></div>
+<?php endif; ?>
 <?php if (hasAnyRole(['superadmin', 'admin'])): ?>
 <div class="nav-item nav-item-external-split d-flex align-items-stretch">
 				<a href="<?= $baseUrl ?>/admin/kt_report_all.php" class="nav-main-link <?= $activePage==='kt_report_all'?'active':'' ?>" style="flex:1 1 auto;"><i class="bi bi-calendar-week"></i><?= t('nav_weekly_production') ?></a>
@@ -187,13 +195,17 @@ echo $role === 'superadmin' ? t('role_display_superadmin') :
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/import.php" class="<?= $activePage==='import'?'active':'' ?>"><i class="bi bi-file-earmark-arrow-up"></i><?= t('nav_import') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/translations.php" class="<?= $activePage==='translations'?'active':'' ?>"><i class="bi bi-translate"></i><?= t('manage_translations') ?></a></div>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/audit_log.php" class="<?= $activePage==='audit_log'?'active':'' ?>"><i class="bi bi-clock-history"></i><?= t('audit_log') ?></a></div>
-<?php if (isSuperAdmin()): ?>
+<?php if (isSuperAdmin() && !isRoleSimulationActive()): ?>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/scripts.php" class="<?= $activePage==='scripts'?'active':'' ?>"><i class="bi bi-terminal"></i><?= t('nav_scripts') ?></a></div>
 <?php endif; ?>
 <?php endif; ?>
 <?php endif; ?>
+<?php if (isRoleSimulationActive() && isActualSuperAdmin()): ?>
+<div class="nav-section">RBAC</div>
+<div class="nav-item"><a href="<?= $baseUrl ?>/admin/scripts.php" class="<?= $activePage==='scripts'?'active':'' ?>"><i class="bi bi-terminal"></i><?= t('nav_scripts') ?></a></div>
+<?php endif; ?>
 <div class="nav-section"><?= t('account') ?></div>
-			<div class="nav-item"><a href="<?= $baseUrl ?>/admin/manual.php" class="<?= $activePage==='manual'?'active':'' ?>"><i class="bi bi-journal-text"></i><?= t('nav_manual') ?></a></div>
+<?php if (!isFskPrintRole()): ?><div class="nav-item"><a href="<?= $baseUrl ?>/admin/manual.php" class="<?= $activePage==='manual'?'active':'' ?>"><i class="bi bi-journal-text"></i><?= t('nav_manual') ?></a></div><?php endif; ?>
 <div class="nav-item"><a href="<?= $baseUrl ?>/admin/profile.php" class="<?= $activePage==='profile'?'active':'' ?>"><i class="bi bi-person-circle"></i><?= t('profile') ?></a></div>
 <?php else: ?>
 <div class="nav-section"><?= t('admin') ?></div>
@@ -241,8 +253,9 @@ $langUrl = fn($l) => '?' . http_build_query(array_merge($_GET, ['lang' => $l]));
 <?php endif; ?>
 </div>
 </aside>
+<?php endif; ?>
 
-<div class="main" id="main-content">
+<div class="main" id="main-content"<?= !$showSidebar ? ' style="margin-left:0"' : '' ?>>
 <!-- Clock script -->
 <script>
 (()=>{
